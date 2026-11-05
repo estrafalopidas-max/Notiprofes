@@ -592,15 +592,59 @@ export function generarHtmlPublicoBoletin(boletin: BoletinSemanal): string {
     })
     .join('');
 
+  // Detectar el día presente / actual (Lunes a Viernes) para destacarlo en el HTML público
+  const hoyFecha = new Date();
+  const diaMesHoy = hoyFecha.getDate();
+  const mesesNombres = [
+    'ENERO',
+    'FEBRERO',
+    'MARZO',
+    'ABRIL',
+    'MAYO',
+    'JUNIO',
+    'JULIO',
+    'AGOSTO',
+    'SEPTIEMBRE',
+    'OCTUBRE',
+    'NOVIEMBRE',
+    'DICIEMBRE',
+  ];
+  const mesActualNombre = mesesNombres[hoyFecha.getMonth()];
+  const diaSemanaNum = hoyFecha.getDay();
+  const mapaPrefijosDias: Record<number, string> = {
+    1: 'LUN',
+    2: 'MAR',
+    3: 'MI',
+    4: 'JUE',
+    5: 'VIE',
+  };
+  const prefijoDiaHoy = mapaPrefijosDias[diaSemanaNum];
+
+  const diaPresenteEnBoletin =
+    boletin.dias.find((d) => {
+      const txt = d.fechaTexto.toUpperCase();
+      const regexDia = new RegExp(`\\b0?${diaMesHoy}\\b`);
+      return regexDia.test(txt) && txt.includes(mesActualNombre);
+    }) ||
+    (prefijoDiaHoy
+      ? boletin.dias.find((d) => d.fechaTexto.toUpperCase().startsWith(prefijoDiaHoy))
+      : null) ||
+    boletin.dias[0];
+
+  const idDiaPresente = diaPresenteEnBoletin?.id || null;
+
   const tarjetasDiasGraficasHtml = boletin.dias
     .map((dia) => {
+      const esHoy = dia.id === idDiaPresente;
+
       if (dia.esFestivo && dia.actividades.length === 0) {
         return `
-        <div class="day-card festivo-card">
-          <div class="day-card-header">
+        <div class="day-card festivo-card ${esHoy ? 'day-card-hoy' : ''}">
+          <div class="day-card-header ${esHoy ? 'day-header-hoy' : ''}">
             <div class="day-title-wrap">
               <span class="day-pill-festivo">JORNADA FESTIVA</span>
               <h4>${escaparHtml(dia.fechaTexto)}</h4>
+              ${esHoy ? `<span class="day-badge-hoy">🔥 HOY · DÍA EN CURSO</span>` : ''}
             </div>
             <span class="day-meta">${escaparHtml(dia.notaHorario || 'DÍA FESTIVO')}</span>
           </div>
@@ -640,11 +684,12 @@ export function generarHtmlPublicoBoletin(boletin: BoletinSemanal): string {
             </div>`;
 
       return `
-      <div class="day-card">
-        <div class="day-card-header">
+      <div class="day-card ${esHoy ? 'day-card-hoy' : ''}">
+        <div class="day-card-header ${esHoy ? 'day-header-hoy' : ''}">
           <div class="day-title-wrap">
             <span class="day-count-badge">${dia.actividades.length}</span>
             <h4>${escaparHtml(dia.fechaTexto)}</h4>
+            ${esHoy ? `<span class="day-badge-hoy">🔥 HOY · DÍA EN CURSO</span>` : ''}
             ${dia.notaHorario ? `<span class="day-horario-tag">${escaparHtml(dia.notaHorario)}</span>` : ''}
           </div>
           <span class="day-meta">${dia.actividades.length} actividad(es)</span>
@@ -656,11 +701,16 @@ export function generarHtmlPublicoBoletin(boletin: BoletinSemanal): string {
 
   const filasDiasTablaHtml = boletin.dias
     .map((dia) => {
+      const esHoy = dia.id === idDiaPresente;
+
       if (dia.esFestivo && dia.actividades.length === 0) {
         return `
-        <tr class="fila-festivo">
-          <td class="col-fecha">
-            <div class="dia-nombre">${escaparHtml(dia.fechaTexto)}</div>
+        <tr class="fila-festivo ${esHoy ? 'fila-hoy' : ''}">
+          <td class="col-fecha ${esHoy ? 'col-fecha-hoy' : ''}">
+            <div class="dia-nombre">
+              ${escaparHtml(dia.fechaTexto)}
+              ${esHoy ? `<span class="badge-tabla-hoy">HOY</span>` : ''}
+            </div>
           </td>
           <td colspan="4" class="col-festivo">
             <strong>${escaparHtml(dia.notaHorario || 'DÍA FESTIVO')}</strong>
@@ -670,9 +720,12 @@ export function generarHtmlPublicoBoletin(boletin: BoletinSemanal): string {
 
       if (dia.actividades.length === 0) {
         return `
-        <tr>
-          <td class="col-fecha">
-            <div class="dia-nombre">${escaparHtml(dia.fechaTexto)}</div>
+        <tr class="${esHoy ? 'fila-hoy' : ''}">
+          <td class="col-fecha ${esHoy ? 'col-fecha-hoy' : ''}">
+            <div class="dia-nombre">
+              ${escaparHtml(dia.fechaTexto)}
+              ${esHoy ? `<span class="badge-tabla-hoy">HOY</span>` : ''}
+            </div>
             ${dia.notaHorario ? `<div class="dia-nota">${escaparHtml(dia.notaHorario)}</div>` : ''}
           </td>
           <td class="col-act"><em>Sin actividades adicionales registradas</em></td>
@@ -686,8 +739,11 @@ export function generarHtmlPublicoBoletin(boletin: BoletinSemanal): string {
         .map((act: ActividadProgramada, idx: number) => {
           const celdaFecha =
             idx === 0
-              ? `<td class="col-fecha" rowspan="${dia.actividades.length}">
-                  <div class="dia-nombre">${escaparHtml(dia.fechaTexto)}</div>
+              ? `<td class="col-fecha ${esHoy ? 'col-fecha-hoy' : ''}" rowspan="${dia.actividades.length}">
+                  <div class="dia-nombre">
+                    ${escaparHtml(dia.fechaTexto)}
+                    ${esHoy ? `<span class="badge-tabla-hoy">HOY</span>` : ''}
+                  </div>
                   ${
                     dia.notaHorario
                       ? `<div class="dia-nota">${escaparHtml(dia.notaHorario)}</div>`
@@ -702,7 +758,7 @@ export function generarHtmlPublicoBoletin(boletin: BoletinSemanal): string {
               : '';
 
           return `
-          <tr class="${act.reprogramada ? 'fila-reprogramada' : ''}">
+          <tr class="${act.reprogramada ? 'fila-reprogramada' : ''} ${esHoy ? 'fila-hoy' : ''}">
             ${celdaFecha}
             <td class="col-act">
               <div class="act-titulo">${escaparHtml(act.titulo)}</div>
@@ -1096,28 +1152,33 @@ export function generarHtmlPublicoBoletin(boletin: BoletinSemanal): string {
       margin-bottom: 36px;
     }
     .sec-head {
+      background: linear-gradient(135deg, #0F223D 0%, #034EA2 100%);
+      color: #ffffff;
+      padding: 14px 22px;
+      border-radius: 12px;
+      margin-bottom: 20px;
       display: flex;
       justify-content: space-between;
       align-items: center;
-      margin-bottom: 16px;
-      padding-bottom: 10px;
-      border-bottom: 2px solid #e2e8f0;
+      box-shadow: 0 4px 12px rgba(15, 34, 61, 0.2);
     }
     .subtitulo-seccion {
       font-family: 'Plus Jakarta Sans', 'Outfit', sans-serif;
-      font-size: 17px;
+      font-size: 16px;
       font-weight: 800;
       text-transform: uppercase;
-      letter-spacing: 0.01em;
-      color: var(--vf-blue-deep);
+      letter-spacing: 0.02em;
+      color: #ffffff !important;
       margin: 0;
     }
     .sec-counter {
-      font-family: var(--font-sans);
-      font-variant-numeric: tabular-nums;
-      font-size: 12px;
-      color: #64748b;
-      font-weight: 600;
+      background: rgba(255, 255, 255, 0.18);
+      color: #ffffff;
+      padding: 5px 12px;
+      border-radius: 20px;
+      font-size: 11.5px;
+      font-weight: 700;
+      border: 1px solid rgba(255, 255, 255, 0.3);
     }
     .docs-grid {
       display: grid;
@@ -1171,20 +1232,31 @@ export function generarHtmlPublicoBoletin(boletin: BoletinSemanal): string {
       gap: 16px;
     }
     .day-card {
-      border: 1px solid #dbe4f0;
+      border: 1px solid #cbd5e1;
       border-radius: 12px;
       overflow: hidden;
       background: #ffffff;
+      box-shadow: 0 2px 8px rgba(15, 23, 42, 0.05);
+      transition: all 0.2s ease;
+    }
+    .day-card.day-card-hoy {
+      border: 2px solid #007DC5;
+      box-shadow: 0 4px 20px rgba(0, 125, 197, 0.22);
     }
     .day-card-header {
-      background: #f8fafc;
+      background: linear-gradient(135deg, #034EA2 0%, #007DC5 100%);
+      color: #ffffff;
       padding: 12px 18px;
-      border-bottom: 1px solid #e2e8f0;
+      border-bottom: 1px solid #0284c7;
       display: flex;
       justify-content: space-between;
       align-items: center;
       flex-wrap: wrap;
       gap: 10px;
+    }
+    .day-card-header.day-header-hoy {
+      background: linear-gradient(135deg, #0F223D 0%, #034EA2 100%);
+      border-bottom: 3px solid #ED145B;
     }
     .day-title-wrap {
       display: flex;
@@ -1197,43 +1269,85 @@ export function generarHtmlPublicoBoletin(boletin: BoletinSemanal): string {
       font-family: 'Plus Jakarta Sans', 'Outfit', sans-serif;
       font-size: 15px;
       font-weight: 800;
-      color: var(--vf-dark);
+      color: #ffffff !important;
       text-transform: uppercase;
+      letter-spacing: 0.02em;
     }
     .day-count-badge {
-      background: var(--vf-blue-deep);
-      color: #ffffff;
+      background: #ffffff;
+      color: #034EA2;
       font-family: var(--font-sans);
       font-variant-numeric: tabular-nums;
-      font-size: 11.5px;
-      font-weight: 700;
-      width: 24px;
-      height: 24px;
-      border-radius: 6px;
+      font-size: 12px;
+      font-weight: 800;
+      width: 26px;
+      height: 26px;
+      border-radius: 8px;
       display: inline-flex;
       align-items: center;
       justify-content: center;
+      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.15);
+    }
+    .day-badge-hoy {
+      background: #ED145B;
+      color: #ffffff;
+      font-family: var(--font-sans);
+      font-size: 11px;
+      font-weight: 800;
+      padding: 3px 10px;
+      border-radius: 20px;
+      letter-spacing: 0.03em;
+      box-shadow: 0 2px 6px rgba(237, 20, 91, 0.4);
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
     }
     .day-pill-festivo {
-      background: var(--vf-magenta);
+      background: #ED145B;
       color: #ffffff;
       font-family: var(--font-sans);
       font-size: 10.5px;
-      font-weight: 700;
+      font-weight: 800;
       padding: 3px 8px;
       border-radius: 4px;
     }
     .day-horario-tag {
-      color: var(--vf-blue-bright);
-      font-size: 12px;
+      background: rgba(255, 255, 255, 0.2);
+      color: #ffffff;
+      font-size: 11.5px;
       font-weight: 700;
+      padding: 2px 8px;
+      border-radius: 6px;
+      border: 1px solid rgba(255, 255, 255, 0.3);
     }
     .day-meta {
       font-family: var(--font-sans);
       font-variant-numeric: tabular-nums;
       font-size: 12px;
-      font-weight: 600;
-      color: #64748b;
+      font-weight: 700;
+      color: #f0f9ff;
+    }
+    .fila-hoy td {
+      background: #eff6ff !important;
+    }
+    .col-fecha-hoy {
+      background: #dbeafe !important;
+      border-left: 5px solid #034EA2 !important;
+    }
+    .col-fecha-hoy .dia-nombre {
+      color: #034EA2 !important;
+      font-weight: 800 !important;
+    }
+    .badge-tabla-hoy {
+      background: #034EA2;
+      color: #ffffff;
+      font-size: 9.5px;
+      font-weight: 800;
+      padding: 2px 6px;
+      border-radius: 4px;
+      margin-left: 6px;
+      vertical-align: middle;
+      display: inline-block;
     }
     .day-empty {
       padding: 18px;

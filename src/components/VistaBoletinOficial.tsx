@@ -480,14 +480,14 @@ export const VistaBoletinOficial: React.FC<VistaBoletinOficialProps> = ({
         aria-label="Documentos y Enlaces Permanentes"
         className="bg-white border border-slate-200 rounded-2xl p-6 sm:p-8 shadow-2xs space-y-5"
       >
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b-2 border-[#034EA2]/15">
-          <div className="flex items-center gap-2.5">
-            <div className="w-2 h-6 rounded-full bg-[#007DC5]" />
-            <h2 className="text-base sm:text-lg font-display font-extrabold uppercase tracking-tight text-[#034EA2]">
+        <div className="bg-linear-to-r from-[#0F223D] via-[#034EA2] to-[#007DC5] p-4 sm:px-6 rounded-xl text-white flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs">
+          <div className="flex items-center gap-3">
+            <div className="w-2.5 h-7 rounded-full bg-[#007DC5]" />
+            <h2 className="text-base sm:text-lg font-display font-extrabold uppercase tracking-wide text-white">
               Documentos, Resoluciones y Horarios de la Semana
             </h2>
           </div>
-          <span className="text-xs font-mono-tabular font-semibold text-slate-500">
+          <span className="px-3 py-1 text-xs font-mono-tabular font-extrabold rounded-full bg-white/20 text-white border border-white/30 self-start sm:self-center">
             {boletin.documentosPermanentes.length} documentos activos
           </span>
         </div>
@@ -571,19 +571,19 @@ export const VistaBoletinOficial: React.FC<VistaBoletinOficialProps> = ({
         aria-label="Programación Semanal de Actividades"
         className="bg-white border border-slate-200 rounded-2xl p-6 sm:p-8 shadow-2xs space-y-6"
       >
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b-2 border-[#034EA2]/15">
-          <div className="flex items-center gap-2.5">
-            <div className="w-2 h-6 rounded-full bg-[#ED145B]" />
+        <div className="bg-linear-to-r from-[#0F223D] via-[#034EA2] to-[#007DC5] p-4 sm:px-6 rounded-xl text-white flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs">
+          <div className="flex items-center gap-3">
+            <div className="w-2.5 h-7 rounded-full bg-[#ED145B]" />
             <div>
-              <h2 className="text-base sm:text-lg font-display font-extrabold uppercase tracking-tight text-[#034EA2]">
+              <h2 className="text-base sm:text-lg font-display font-extrabold uppercase tracking-wide text-white">
                 Programación de Actividades de la Semana
               </h2>
-              <p className="text-xs text-slate-500 font-medium">
+              <p className="text-xs text-sky-100 font-medium">
                 Cronograma operativo para docentes, directivos y personal administrativo
               </p>
             </div>
           </div>
-          <span className="text-xs font-mono-tabular font-semibold text-slate-500">
+          <span className="px-3 py-1 text-xs font-mono-tabular font-extrabold rounded-full bg-white/20 text-white border border-white/30 self-start sm:self-center">
             Mostrando {diasFiltrados.reduce((acc, d) => acc + d.actividades.length, 0)} de{' '}
             {totalActividadesSemana} actividades
           </span>
@@ -650,18 +650,18 @@ export const VistaBoletinOficial: React.FC<VistaBoletinOficialProps> = ({
               return (
                 <div
                   key={dia.id}
-                  className={`rounded-2xl border overflow-hidden transition-all border-l-4 ${
+                  className={`rounded-2xl border overflow-hidden transition-all ${
                     esDiaActual
-                      ? 'border-2 border-[#034EA2] border-l-4 border-l-[#034EA2] bg-white shadow-md ring-2 ring-sky-100'
-                      : 'border-slate-200/90 border-l-[#007DC5] bg-white shadow-xs'
+                      ? 'border-2 border-[#007DC5] bg-white shadow-md ring-2 ring-sky-200/60'
+                      : 'border-slate-300/90 bg-white shadow-xs'
                   }`}
                 >
-                  {/* Cabecera del día con banda cromática y acordeón */}
+                  {/* Cabecera del día con banda cromática intensa */}
                   <div
-                    className={`px-5 py-3.5 border-b flex flex-wrap items-center justify-between gap-3 ${
+                    className={`px-5 py-3.5 border-b flex flex-wrap items-center justify-between gap-3 text-white ${
                       esDiaActual
-                        ? 'bg-linear-to-r from-[#034EA2]/15 via-sky-50 to-white border-sky-200'
-                        : 'bg-linear-to-r from-[#034EA2]/8 via-slate-50 to-white border-slate-200/80'
+                        ? 'bg-linear-to-r from-[#0F223D] via-[#034EA2] to-[#007DC5] border-b-2 border-[#ED145B]'
+                        : 'bg-linear-to-r from-[#034EA2] to-[#007DC5] border-sky-600/50'
                     }`}
                   >
                     <button
@@ -674,37 +674,33 @@ export const VistaBoletinOficial: React.FC<VistaBoletinOficialProps> = ({
                       }
                       className="flex flex-wrap items-center gap-3 text-left cursor-pointer group"
                     >
-                      <span className="w-8 h-8 rounded-xl bg-[#034EA2] text-white font-mono-tabular font-extrabold text-xs inline-flex items-center justify-center shadow-2xs shrink-0">
-                        {String(dia.actividades.length).padStart(2, '0')}
-                      </span>
-                      <h3
-                        className={`text-sm sm:text-base font-display font-extrabold uppercase group-hover:text-[#007DC5] transition-colors ${
-                          esDiaActual ? 'text-[#034EA2]' : 'text-[#0F172A]'
+                      <span
+                        className={`w-8 h-8 rounded-xl font-mono-tabular font-extrabold text-xs inline-flex items-center justify-center shadow-xs shrink-0 ${
+                          esDiaActual
+                            ? 'bg-[#ED145B] text-white'
+                            : 'bg-white text-[#034EA2]'
                         }`}
                       >
+                        {String(dia.actividades.length).padStart(2, '0')}
+                      </span>
+                      <h3 className="text-sm sm:text-base font-display font-extrabold uppercase tracking-wide text-white group-hover:text-amber-200 transition-colors">
                         {dia.fechaTexto}
                       </h3>
                       {esDiaActual && (
-                        <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 text-xs font-extrabold uppercase tracking-wide bg-[#034EA2] text-white rounded-full shadow-2xs">
-                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                        <span className="inline-flex items-center gap-1.5 px-3 py-1 text-xs font-extrabold uppercase tracking-wide bg-[#ED145B] text-white rounded-full shadow-xs">
+                          <span className="w-1.5 h-1.5 rounded-full bg-amber-300 animate-pulse" />
                           Hoy · Día Activo
                         </span>
                       )}
                       {dia.notaHorario && (
-                        <span className="px-2.5 py-0.5 text-xs font-bold bg-sky-100 text-[#034EA2] border border-sky-200 rounded-md">
+                        <span className="px-2.5 py-0.5 text-xs font-bold bg-white/20 text-white border border-white/30 rounded-md">
                           {dia.notaHorario}
                         </span>
                       )}
                     </button>
 
                     <div className="flex items-center gap-2.5">
-                      <span
-                        className={`px-2.5 py-1 rounded-lg text-xs font-mono-tabular font-bold ${
-                          esDiaActual
-                            ? 'bg-sky-100 text-[#034EA2]'
-                            : 'bg-slate-100 text-slate-600'
-                        }`}
-                      >
+                      <span className="px-2.5 py-1 rounded-lg text-xs font-mono-tabular font-bold bg-white/20 text-white border border-white/30">
                         {dia.actividades.length} actividad(es)
                       </span>
                       <button
@@ -1010,19 +1006,19 @@ export const VistaBoletinOficial: React.FC<VistaBoletinOficialProps> = ({
             aria-label={`Calendario Académico Oficial ${calActivo.anio} y Festivos`}
             className="bg-white border border-slate-200 rounded-2xl p-6 sm:p-8 shadow-2xs space-y-6"
           >
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b-2 border-[#034EA2]/15">
-              <div className="flex items-center gap-2.5">
-                <div className="w-2 h-6 rounded-full bg-[#007DC5]" />
+            <div className="bg-linear-to-r from-[#0F223D] via-[#034EA2] to-[#007DC5] p-4 sm:px-6 rounded-xl text-white flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs">
+              <div className="flex items-center gap-3">
+                <div className="w-2.5 h-7 rounded-full bg-[#007DC5]" />
                 <div>
-                  <h2 className="text-base sm:text-lg font-display font-extrabold uppercase tracking-tight text-[#034EA2]">
+                  <h2 className="text-base sm:text-lg font-display font-extrabold uppercase tracking-wide text-white">
                     Calendario Académico Oficial {calActivo.anio} (Medellín) y Festivos del Año
                   </h2>
-                  <p className="text-xs text-slate-500 font-medium">
+                  <p className="text-xs text-sky-100 font-medium">
                     {calActivo.resolucionTexto}
                   </p>
                 </div>
               </div>
-              <span className="px-3 py-1 rounded-lg bg-sky-50 border border-sky-200 text-xs font-bold text-[#034EA2]">
+              <span className="px-3 py-1.5 text-xs font-extrabold rounded-full bg-white/20 text-white border border-white/30 self-start sm:self-center">
                 {estadoCalendario.numeroPeriodo}
                 <sup className="text-[9px] font-extrabold lowercase ml-0.5">
                   {estadoCalendario.ordinalSup}
@@ -1366,19 +1362,19 @@ export const VistaBoletinOficial: React.FC<VistaBoletinOficialProps> = ({
         aria-label="Horarios del Personal de Apoyo"
         className="bg-white border border-slate-200 rounded-2xl p-6 sm:p-8 shadow-2xs space-y-6"
       >
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b-2 border-[#034EA2]/15">
-          <div className="flex items-center gap-2.5">
-            <div className="w-2 h-6 rounded-full bg-[#034EA2]" />
+        <div className="bg-linear-to-r from-[#0F223D] via-[#034EA2] to-[#007DC5] p-4 sm:px-6 rounded-xl text-white flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs">
+          <div className="flex items-center gap-3">
+            <div className="w-2.5 h-7 rounded-full bg-[#034EA2]" />
             <div>
-              <h2 className="text-base sm:text-lg font-display font-extrabold uppercase tracking-tight text-[#034EA2]">
+              <h2 className="text-base sm:text-lg font-display font-extrabold uppercase tracking-wide text-white">
                 Horarios del Personal de Apoyo, Auxiliares y Seguridad
               </h2>
-              <p className="text-xs text-slate-500 font-medium">
+              <p className="text-xs text-sky-100 font-medium">
                 Atención UAI, Psicología PEEP, PTAFI 3.0, Biblioteca y Administración
               </p>
             </div>
           </div>
-          <span className="text-xs font-mono-tabular font-semibold text-slate-500">
+          <span className="px-3 py-1 text-xs font-mono-tabular font-extrabold rounded-full bg-white/20 text-white border border-white/30 self-start sm:self-center">
             Jornada Lunes a Viernes
           </span>
         </div>
