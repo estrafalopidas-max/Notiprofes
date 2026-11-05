@@ -935,10 +935,12 @@ async function iniciarServidor() {
     res.send(html);
   });
 
-  // Ruta pública enmascarada /public/schedule para el enlace corto oficial
-  app.get('/public/schedule', (req, res) => {
-    const queryId = typeof req.query.id === 'string' ? req.query.id : 'actual';
-    const idBuscado = queryId === 'actual' ? estadoDb.boletinActivoId : queryId;
+  // Ruta pública enmascarada /public/schedule y alias ultracorto /b para el enlace oficial de consulta
+  app.get(['/public/schedule', '/b', '/b/:id'], (req, res) => {
+    const paramId = req.params?.id;
+    const queryId = typeof req.query.id === 'string' ? req.query.id : undefined;
+    const idSolicitado = paramId || queryId || 'actual';
+    const idBuscado = idSolicitado === 'actual' ? estadoDb.boletinActivoId : idSolicitado;
     const boletin =
       estadoDb.boletines.find((b) => b.id === idBuscado) || estadoDb.boletines[0];
     if (!boletin) {
@@ -974,6 +976,7 @@ async function iniciarServidor() {
 
     if (
       !urlParseada.pathname.startsWith('/public/schedule') &&
+      !urlParseada.pathname.startsWith('/b') &&
       !urlParseada.pathname.startsWith('/api/public/boletin')
     ) {
       res.status(403).json({
@@ -1876,7 +1879,7 @@ Devuelve todas las fechas estrictamente en formato ISO YYYY-MM-DD.`,
     });
   }
 
-  const PORT = 3000;
+  const PORT = Number(process.env.PORT) || 3000;
   server.listen(PORT, '0.0.0.0', () => {
     console.log(`Servidor NotiProfes Digital (I.E. Villa Flora) activo en puerto ${PORT}`);
   });
