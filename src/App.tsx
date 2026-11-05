@@ -75,9 +75,22 @@ export default function App() {
   const [menuMovilAbierto, setMenuMovilAbierto] = useState<boolean>(false);
   const [copiadoHeader, setCopiadoHeader] = useState<boolean>(false);
 
-  const [tokenSesion, setTokenSesion] = useState<string | null>(null);
+  const [tokenSesion, setTokenSesion] = useState<string | null>(() => {
+    try {
+      return localStorage.getItem('notiprofes_token');
+    } catch {
+      return null;
+    }
+  });
   const [usuarioDirectivo, setUsuarioDirectivo] =
-    useState<UsuarioDirectivo | null>(null);
+    useState<UsuarioDirectivo | null>(() => {
+      try {
+        const raw = localStorage.getItem('notiprofes_usuario');
+        return raw ? (JSON.parse(raw) as UsuarioDirectivo) : null;
+      } catch {
+        return null;
+      }
+    });
   const [modalLoginAbierto, setModalLoginAbierto] = useState<boolean>(false);
   const [modalPreviewAbierto, setModalPreviewAbierto] = useState<boolean>(false);
   const [modalPublicacionAbierto, setModalPublicacionAbierto] = useState<boolean>(false);
@@ -317,8 +330,15 @@ export default function App() {
   }, [presencia, usuarioDirectivo, estadoActividadLocal]);
 
   const handleAutenticarExito = (token: string, usuario: UsuarioDirectivo) => {
+    try {
+      localStorage.setItem('notiprofes_token', token);
+      localStorage.setItem('notiprofes_usuario', JSON.stringify(usuario));
+    } catch {
+      // Ignorar error de cuota local
+    }
     setTokenSesion(token);
     setUsuarioDirectivo(usuario);
+    setModalLoginAbierto(false);
     emitirPresencia(seccionActivaRef.current, token);
   };
 
@@ -333,9 +353,15 @@ export default function App() {
         // Ignorar error de red al cerrar sesión
       }
     }
+    try {
+      localStorage.removeItem('notiprofes_token');
+      localStorage.removeItem('notiprofes_usuario');
+    } catch {
+      // Ignorar
+    }
     setTokenSesion(null);
     setUsuarioDirectivo(null);
-    emitirPresencia(seccionActivaRef.current, null);
+    emitirPresencia('Boletín Oficial', null);
   };
 
   const handleEjecutarOperacion = async (op: OperacionBoletin): Promise<boolean> => {
@@ -420,6 +446,50 @@ export default function App() {
   };
 
   const estadoCalendario = calcularEstadoCalendarioBoletin(boletin);
+
+  // Pantalla de Login Obligatoria para el Panel de Coordinación (acceso protegido)
+  if (!usuarioDirectivo || !tokenSesion) {
+    return (
+      <div className="min-h-screen bg-linear-to-br from-[#0F223D] via-[#034EA2] to-[#007DC5] flex flex-col justify-between p-4 sm:p-6 select-none">
+        <header className="flex items-center justify-between max-w-lg w-full mx-auto py-2 text-white">
+          <div className="flex items-center gap-2">
+            <ShieldCheck className="w-5 h-5 text-amber-400" />
+            <span className="font-display font-extrabold text-xs sm:text-sm tracking-wider uppercase text-sky-100">
+              Panel Directivo Protegido
+            </span>
+          </div>
+          <a
+            href="/b"
+            className="flex items-center gap-1.5 text-xs font-bold text-sky-100 hover:text-white bg-white/10 hover:bg-white/20 px-3 py-1.5 rounded-lg border border-white/20 transition-all cursor-pointer shadow-xs"
+          >
+            <Globe className="w-3.5 h-3.5 text-emerald-300" />
+            <span>Boletín Público (/b)</span>
+          </a>
+        </header>
+
+        <main className="flex-1 flex items-center justify-center my-4">
+          <ModalAccesoDirectivo
+            abierto={true}
+            esObligatorio={true}
+            onCerrar={() => {}}
+            onAutenticarExito={handleAutenticarExito}
+            onConsultaPublica={() => {
+              window.location.href = '/b';
+            }}
+          />
+        </main>
+
+        <footer className="text-center text-xs text-sky-200/80 max-w-md mx-auto space-y-1">
+          <p className="font-semibold">
+            Institución Educativa Villa Flora · Medellín, Colombia
+          </p>
+          <p className="text-[11px] text-sky-300/60">
+            Canal de Coordinación Institucional · Inicie sesión para acceder al panel.
+          </p>
+        </footer>
+      </div>
+    );
+  }
 
   return (
     <div

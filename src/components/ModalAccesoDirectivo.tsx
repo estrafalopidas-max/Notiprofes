@@ -23,6 +23,7 @@ interface ModalAccesoDirectivoProps {
   onCerrar: () => void;
   onAutenticarExito: (token: string, usuario: UsuarioDirectivo) => void;
   onConsultaPublica?: () => void;
+  esObligatorio?: boolean;
 }
 
 const ROLES_REGISTRO: Array<{
@@ -50,6 +51,7 @@ export const ModalAccesoDirectivo: React.FC<ModalAccesoDirectivoProps> = ({
   onCerrar,
   onAutenticarExito,
   onConsultaPublica,
+  esObligatorio = false,
 }) => {
   const [identificador, setIdentificador] = useState<string>('');
   const [password, setPassword] = useState<string>('');
@@ -215,14 +217,16 @@ export const ModalAccesoDirectivo: React.FC<ModalAccesoDirectivoProps> = ({
       <div className="max-w-[420px] w-full bg-[#0F223D] rounded-3xl overflow-hidden shadow-2xl border border-slate-700/40 my-auto animate-in fade-in zoom-in-95 duration-150">
         {/* CABECERA SUPERIOR OSCURA CON LOGO INSTITUCIONAL DESPEJADO */}
         <div className="bg-[#0F223D] px-6 pt-8 pb-4 flex flex-col items-center text-center relative shrink-0">
-          <button
-            type="button"
-            onClick={onCerrar}
-            aria-label="Cerrar ventana de acceso"
-            className="absolute top-3 right-3 z-20 p-1.5 rounded-full text-slate-300 hover:text-white bg-white/10 hover:bg-white/20 transition-all cursor-pointer"
-          >
-            <X className="w-4 h-4" />
-          </button>
+          {!esObligatorio && (
+            <button
+              type="button"
+              onClick={onCerrar}
+              aria-label="Cerrar ventana de acceso"
+              className="absolute top-3 right-3 z-20 p-1.5 rounded-full text-slate-300 hover:text-white bg-white/10 hover:bg-white/20 transition-all cursor-pointer"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          )}
 
           {/* Logo institucional oficial con margen superior libre para no chocar con el botón cerrar */}
           <div className="w-full max-w-[330px] flex items-center justify-center mb-2.5 pointer-events-none select-none">
