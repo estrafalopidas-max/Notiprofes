@@ -1048,7 +1048,20 @@ export default function App() {
         abierto={modalPublicacionAbierto}
         onCerrar={() => setModalPublicacionAbierto(false)}
         boletin={boletin}
+        usuarioActual={usuarioDirectivo}
+        tokenSesion={tokenSesion}
+        onSolicitarLogin={() => {
+          setModalPublicacionAbierto(false);
+          setModalLoginAbierto(true);
+        }}
         onAbrirPrevisualizacion={() => setModalPreviewAbierto(true)}
+        onGuardarMetadataDrivePdf={async (drivePdfInfo) => {
+          return handleEjecutarOperacion({
+            tipo: 'actualizar_drive_pdf',
+            drivePdfInfo,
+            autor: usuarioDirectivo?.nombre || 'Dirección Institucional',
+          });
+        }}
         onSincronizarPublicacion={async () => {
           if (usuarioDirectivo && tokenSesion) {
             return handleEjecutarOperacion({
@@ -1066,6 +1079,11 @@ export default function App() {
         abierto={modalUsuariosAbierto}
         onCerrar={() => setModalUsuariosAbierto(false)}
         usuarioActual={usuarioDirectivo}
+        tokenSesion={tokenSesion}
+        onSolicitarLogin={() => {
+          setModalUsuariosAbierto(false);
+          setModalLoginAbierto(true);
+        }}
       />
     </div>
   );

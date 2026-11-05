@@ -305,6 +305,14 @@ export function aplicarOperacionBoletin(
       };
       break;
     }
+
+    case 'actualizar_drive_pdf': {
+      boletinModificado = {
+        ...boletin,
+        drivePdfInfo: op.drivePdfInfo,
+      };
+      break;
+    }
   }
 
   const nowStr = new Date().toLocaleString('es-CO', {
@@ -410,6 +418,14 @@ export function aplicarOperacionBoletin(
       accion = `Activar Calendario ${op.calendario.anio}`;
       descripcion = `Se actualizó y activó el Calendario Académico Oficial del año ${op.calendario.anio} (${op.calendario.resolucionTexto}).`;
       break;
+    case 'actualizar_drive_pdf':
+      seccion = 'Publicación en la Nube (Google Drive PDF)';
+      accion =
+        op.drivePdfInfo.version > 1
+          ? `Sobrescritura PDF (v${op.drivePdfInfo.version})`
+          : 'Creación PDF en Google Drive (v1)';
+      descripcion = `Se sincronizó el archivo oficial «${op.drivePdfInfo.fileName}» sobre el ID único de Google Drive (${op.drivePdfInfo.fileId}).`;
+      break;
   }
 
   const nuevoRegistro = {
@@ -461,6 +477,7 @@ export function clonarBoletinSiguienteSemana(
     descripcionPeriodo: datosNuevaSemana.descripcionPeriodo || actual.descripcionPeriodo,
     ultimaActualizacion: new Date().toISOString(),
     actualizadoPor: datosNuevaSemana.autor,
+    drivePdfInfo: undefined,
     dias: actual.dias.map((dia, index) => {
       const metaDia = diasNuevos[index];
       return {

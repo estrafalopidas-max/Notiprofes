@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
 import express, { NextFunction, Request, Response } from 'express';
+import nodemailer from 'nodemailer';
 import { createServer as createViteServer } from 'vite';
 import { WebSocket, WebSocketServer } from 'ws';
 import { GoogleGenAI, Type } from '@google/genai';
@@ -173,8 +174,365 @@ function guardarUsuariosRegistrados(): void {
   }
 }
 
+// =========================================================================
+// CONFIGURACIÓN Y SERVICIO SMTP PARA NOTIFICACIONES AUTOMÁTICAS A DOCENTES
+// =========================================================================
+// Las credenciales secretas (SMTP_HOST, SMTP_USER, SMTP_PASS) se leen exclusivamente
+// desde variables de entorno del backend (Docker / TrueNAS). En disco (/app/data) solo
+// se persisten preferencias no sensibles (lista de correos docentes y estado del envío).
+const ARCHIVO_NOTIFICACIONES = path.join(DIRECTORIO_DATOS, 'notiprofes-notificaciones.json');
+
+interface PreferenciasNotificacionSmtp {
+  notificarAutomaticamenteAlPublicar: boolean;
+  asuntoPrefijo: string;
+  destinatariosDocentes: string[];
+  ultimoEnvio?: {
+    fecha: string;
+    boletinNumero: number;
+    totalDestinatarios: number;
+    estado: 'enviado' | 'error';
+    detalle: string;
+  };
+}
+
+function obtenerCorreosInicialesDocentes(): string[] {
+  const correos = usuariosRegistrados
+    .map((u) => u.correo?.trim())
+    .filter((c): c is string => Boolean(c && c.includes('@')));
+  const base = [
+    ...correos,
+    'docentes@ievillaflora.edu.co',
+    'coordinacion@ievillaflora.edu.co',
+  ];
+  return Array.from(new Set(base));
+}
+
+function cargarPreferenciasNotificacion(): PreferenciasNotificacionSmtp {
+  try {
+    if (fs.existsSync(ARCHIVO_NOTIFICACIONES)) {
+      const datos = JSON.parse(
+        fs.readFileSync(ARCHIVO_NOTIFICACIONES, 'utf-8')
+      ) as Partial<PreferenciasNotificacionSmtp>;
+      if (datos && Array.isArray(datos.destinatariosDocentes)) {
+        return {
+          notificarAutomaticamenteAlPublicar:
+            datos.notificarAutomaticamenteAlPublicar ?? true,
+          asuntoPrefijo:
+            datos.asuntoPrefijo || '[NotiProfes Oficial · I.E. Villa Flora]',
+          destinatariosDocentes: datos.destinatariosDocentes,
+          ultimoEnvio: datos.ultimoEnvio,
+        };
+      }
+    }
+  } catch (err) {
+    console.error('Error al cargar preferencias de notificación SMTP:', err);
+  }
+  return {
+    notificarAutomaticamenteAlPublicar: true,
+    asuntoPrefijo: '[NotiProfes Oficial · I.E. Villa Flora]',
+    destinatariosDocentes: obtenerCorreosInicialesDocentes(),
+  };
+}
+
+const preferenciasNotificacion = cargarPreferenciasNotificacion();
+
+function guardarPreferenciasNotificacion(): void {
+  try {
+    fs.writeFileSync(
+      ARCHIVO_NOTIFICACIONES,
+      JSON.stringify(preferenciasNotificacion, null, 2),
+      'utf-8'
+    );
+  } catch (err) {
+    console.error('Error al guardar preferencias de notificación SMTP:', err);
+  }
+}
+
+const ARCHIVO_SMTP_SERVIDOR = path.join(DIRECTORIO_DATOS, 'notiprofes-smtp-servidor.json');
+
+interface ConfiguracionServidorSmtpPersistida {
+  host: string;
+  port: number;
+  secure: boolean;
+  user: string;
+  pass: string;
+  from: string;
+  actualizadoEn?: string;
+  actualizadoPor?: string;
+}
+
+function cargarConfiguracionSmtpPersistida(): Partial<ConfiguracionServidorSmtpPersistida> {
+  try {
+    if (fs.existsSync(ARCHIVO_SMTP_SERVIDOR)) {
+      const datos = JSON.parse(
+        fs.readFileSync(ARCHIVO_SMTP_SERVIDOR, 'utf-8')
+      ) as Partial<ConfiguracionServidorSmtpPersistida>;
+      if (datos && typeof datos === 'object') {
+        return datos;
+      }
+    }
+  } catch (err) {
+    console.error('Error al cargar configuración de servidor SMTP:', err);
+  }
+  return {};
+}
+
+const configSmtpPersistida: Partial<ConfiguracionServidorSmtpPersistida> =
+  cargarConfiguracionSmtpPersistida();
+
+function guardarConfiguracionSmtpPersistida(): void {
+  try {
+    fs.writeFileSync(
+      ARCHIVO_SMTP_SERVIDOR,
+      JSON.stringify(configSmtpPersistida, null, 2),
+      'utf-8'
+    );
+  } catch (err) {
+    console.error('Error al guardar configuración de servidor SMTP:', err);
+  }
+}
+
+function obtenerConfiguracionSmtpEntorno() {
+  const host = (configSmtpPersistida.host ?? process.env.SMTP_HOST ?? '').trim();
+  const port =
+    Number(configSmtpPersistida.port ?? process.env.SMTP_PORT) || 587;
+  const secure =
+    typeof configSmtpPersistida.secure === 'boolean'
+      ? configSmtpPersistida.secure
+      : process.env.SMTP_SECURE === 'true' || port === 465;
+  const user = (configSmtpPersistida.user ?? process.env.SMTP_USER ?? '').trim();
+  const pass =
+    configSmtpPersistida.pass !== undefined && configSmtpPersistida.pass !== ''
+      ? configSmtpPersistida.pass
+      : process.env.SMTP_PASS || '';
+  const fromPersonalizado = (
+    configSmtpPersistida.from ??
+    process.env.SMTP_FROM ??
+    ''
+  ).trim();
+  const from =
+    fromPersonalizado ||
+    (user
+      ? `NotiProfes Digital I.E. Villa Flora <${user}>`
+      : 'NotiProfes Digital I.E. Villa Flora <no-reply@ievillaflora.edu.co>');
+
+  const configurado = Boolean(host && user && pass);
+  return {
+    host,
+    port,
+    secure,
+    user,
+    pass,
+    from,
+    configurado,
+    actualizadoEn: configSmtpPersistida.actualizadoEn,
+    actualizadoPor: configSmtpPersistida.actualizadoPor,
+  };
+}
+
+function construirHtmlCorreoNotificacion(
+  boletin: BoletinSemanal,
+  urlConsultaPublica: string
+): string {
+  const totalActividades = boletin.dias.reduce(
+    (acc, d) => acc + d.actividades.length,
+    0
+  );
+  const totalReprogramadas = boletin.dias.reduce(
+    (acc, d) => acc + d.actividades.filter((a) => a.reprogramada).length,
+    0
+  );
+
+  const resumenDias = boletin.dias
+    .map((d) => {
+      if (d.esFestivo && d.actividades.length === 0) {
+        return `<li style="margin-bottom:6px;"><strong>${d.fechaTexto}:</strong> <span style="color:#ED145B;font-weight:700;">${d.notaHorario || 'DÍA FESTIVO'}</span></li>`;
+      }
+      return `<li style="margin-bottom:6px;"><strong>${d.fechaTexto}:</strong> ${d.actividades.length} actividad(es) programada(s)</li>`;
+    })
+    .join('');
+
+  return `<!DOCTYPE html>
+<html lang="es">
+<head><meta charset="UTF-8" /></head>
+<body style="margin:0;padding:24px;background-color:#EEF3F9;font-family:'Segoe UI',Arial,sans-serif;color:#0F172A;">
+  <div style="max-width:640px;margin:0 auto;background:#ffffff;border-radius:14px;overflow:hidden;border:1px solid #dbe4f0;">
+    <div style="height:6px;background:linear-gradient(90deg,#034EA2 0%,#007DC5 65%,#ED145B 100%);"></div>
+    <div style="background:linear-gradient(135deg,#022c5e 0%,#034EA2 55%,#007DC5 100%);color:#ffffff;padding:24px 28px;">
+      <div style="display:inline-block;background:#ED145B;color:#ffffff;font-weight:800;font-size:13px;padding:4px 12px;border-radius:6px;margin-bottom:10px;">
+        NOTIPROFES N° ${boletin.numero} · PUBLICACIÓN OFICIAL
+      </div>
+      <h1 style="margin:0 0 6px 0;font-size:21px;line-height:1.3;">${boletin.semanaTexto}</h1>
+      <p style="margin:0;font-size:13px;color:#e0f2fe;">${boletin.descripcionPeriodo}</p>
+    </div>
+    <div style="padding:24px 28px;">
+      <p style="margin:0 0 14px 0;font-size:14px;line-height:1.5;">
+        Estimado equipo docente y directivo de la <strong>Institución Educativa Villa Flora</strong>:
+      </p>
+      <p style="margin:0 0 18px 0;font-size:14px;line-height:1.5;">
+        Se ha publicado y actualizado el boletín institucional semanal <strong>NotiProfes N° ${boletin.numero}</strong> (Fecha de emisión: <strong>${boletin.fechaEmision}</strong>).
+      </p>
+
+      <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:16px;margin-bottom:18px;">
+        <div style="font-size:12px;font-weight:800;text-transform:uppercase;color:#034EA2;margin-bottom:8px;">
+          Resumen de la Programación Semanal (${totalActividades} actividades${totalReprogramadas > 0 ? ` · ${totalReprogramadas} reprogramada(s)` : ''})
+        </div>
+        <ul style="margin:0;padding-left:18px;font-size:13px;color:#334155;">
+          ${resumenDias}
+        </ul>
+      </div>
+
+      <div style="border-left:4px solid #007DC5;padding:10px 14px;background:#f0f9ff;border-radius:0 8px 8px 0;margin-bottom:22px;font-size:12.5px;font-style:italic;color:#1e293b;">
+        "${boletin.frasePedagogica}" — <strong>${boletin.autorFrase}</strong>
+      </div>
+
+      <div style="text-align:center;margin:24px 0 12px;">
+        <a href="${urlConsultaPublica}" target="_blank" rel="noopener noreferrer" style="display:inline-block;background:#007DC5;color:#ffffff;text-decoration:none;font-weight:700;font-size:14px;padding:12px 26px;border-radius:8px;">
+          Abrir Boletín Oficial NotiProfes N° ${boletin.numero} →
+        </a>
+      </div>
+    </div>
+    <div style="background:#f8fafc;border-top:1px solid #e2e8f0;padding:14px 28px;text-align:center;font-size:11.5px;color:#64748b;">
+      Institución Educativa Villa Flora · Medellín, Colombia · Notificación automática del sistema NotiProfes Digital
+    </div>
+  </div>
+</body>
+</html>`;
+}
+
+async function enviarNotificacionBoletinSmtp(
+  boletin: BoletinSemanal,
+  motivo: 'publicacion_oficial' | 'nuevo_boletin_clonado' | 'manual'
+): Promise<{ ok: boolean; mensaje: string; totalEnviados: number }> {
+  const destinatarios = preferenciasNotificacion.destinatariosDocentes
+    .map((c) => c.trim())
+    .filter((c) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(c));
+
+  if (destinatarios.length === 0) {
+    return {
+      ok: false,
+      mensaje: 'No hay correos de docentes configurados en la lista de destinatarios.',
+      totalEnviados: 0,
+    };
+  }
+
+  const smtp = obtenerConfiguracionSmtpEntorno();
+  const ahoraIso = new Date().toLocaleString('es-CO', {
+    timeZone: 'America/Bogota',
+    dateStyle: 'short',
+    timeStyle: 'short',
+  });
+
+  if (!smtp.configurado) {
+    const detalle =
+      'Servidor SMTP pendiente de configurar en variables de entorno (SMTP_HOST, SMTP_USER, SMTP_PASS).';
+    preferenciasNotificacion.ultimoEnvio = {
+      fecha: ahoraIso,
+      boletinNumero: boletin.numero,
+      totalDestinatarios: destinatarios.length,
+      estado: 'error',
+      detalle,
+    };
+    guardarPreferenciasNotificacion();
+    return {
+      ok: false,
+      mensaje: detalle,
+      totalEnviados: 0,
+    };
+  }
+
+  try {
+    const transporter = nodemailer.createTransport({
+      host: smtp.host,
+      port: smtp.port,
+      secure: smtp.secure,
+      auth: {
+        user: smtp.user,
+        pass: smtp.pass,
+      },
+    });
+
+    const appBaseUrl = (process.env.APP_URL || 'http://localhost:3000').replace(
+      /\/$/,
+      ''
+    );
+    const urlPublica = `${appBaseUrl}/public/schedule?id=${encodeURIComponent(boletin.id)}`;
+    const htmlCorreo = construirHtmlCorreoNotificacion(boletin, urlPublica);
+    const etiquetaMotivo =
+      motivo === 'nuevo_boletin_clonado' ? 'Nuevo Boletín Semanal' : 'Boletín Publicado';
+
+    await transporter.sendMail({
+      from: smtp.from,
+      to: smtp.from,
+      bcc: destinatarios.join(', '),
+      subject: `${preferenciasNotificacion.asuntoPrefijo} ${etiquetaMotivo} N° ${boletin.numero} — ${boletin.semanaTexto}`,
+      html: htmlCorreo,
+    });
+
+    const detalleExito = `Notificación enviada con éxito a ${destinatarios.length} correo(s) docente(s).`;
+    preferenciasNotificacion.ultimoEnvio = {
+      fecha: ahoraIso,
+      boletinNumero: boletin.numero,
+      totalDestinatarios: destinatarios.length,
+      estado: 'enviado',
+      detalle: detalleExito,
+    };
+    guardarPreferenciasNotificacion();
+
+    return {
+      ok: true,
+      mensaje: detalleExito,
+      totalEnviados: destinatarios.length,
+    };
+  } catch (err: unknown) {
+    const msgError =
+      err instanceof Error ? err.message : 'Fallo de conexión con el servidor SMTP.';
+    const detalleError = `Error SMTP: ${msgError}`;
+    preferenciasNotificacion.ultimoEnvio = {
+      fecha: ahoraIso,
+      boletinNumero: boletin.numero,
+      totalDestinatarios: destinatarios.length,
+      estado: 'error',
+      detalle: detalleError,
+    };
+    guardarPreferenciasNotificacion();
+    return {
+      ok: false,
+      mensaje: detalleError,
+      totalEnviados: 0,
+    };
+  }
+}
+
 interface RequestAutenticado extends Request {
   usuarioDirectivo?: UsuarioDirectivo;
+}
+
+// Expiración máxima de sesión directiva en memoria: 12 horas
+const SESION_TTL_MS = 12 * 60 * 60 * 1000;
+
+// Control de intentos fallidos de inicio de sesión contra fuerza bruta (máx. 5 intentos / bloqueo 5 min)
+const intentosFallidosLogin = new Map<
+  string,
+  { conteo: number; bloqueadoHasta: number }
+>();
+
+function obtenerSesionValidaDesdeHeader(
+  authHeader: string | undefined
+): SesionActiva | null {
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return null;
+  }
+  const token = authHeader.slice('Bearer '.length).trim();
+  const sesion = sesionesDirectivas.get(token);
+  if (!sesion) {
+    return null;
+  }
+  if (Date.now() - sesion.creadaEn > SESION_TTL_MS) {
+    sesionesDirectivas.delete(token);
+    return null;
+  }
+  return sesion;
 }
 
 function verificarSesionDirectiva(
@@ -182,18 +540,33 @@ function verificarSesionDirectiva(
   res: Response,
   next: NextFunction
 ): void {
-  const authHeader = req.headers.authorization;
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    res.status(401).json({ error: 'No autorizado. Inicie sesión con su usuario institucional.' });
-    return;
-  }
-  const token = authHeader.slice('Bearer '.length).trim();
-  const sesion = sesionesDirectivas.get(token);
+  const sesion = obtenerSesionValidaDesdeHeader(req.headers.authorization);
   if (!sesion) {
-    res.status(401).json({ error: 'Sesión expirada o inválida. Vuelva a iniciar sesión.' });
+    res.status(401).json({
+      error: 'No autorizado o sesión expirada. Inicie sesión con su usuario institucional.',
+    });
     return;
   }
   req.usuarioDirectivo = sesion.usuario;
+  next();
+}
+
+function verificarRolAdministrador(
+  req: RequestAutenticado,
+  res: Response,
+  next: NextFunction
+): void {
+  const usuario = req.usuarioDirectivo;
+  if (
+    !usuario ||
+    (usuario.rol !== 'administrador' && !usuario.permisos?.puedeGestionarUsuarios)
+  ) {
+    res.status(403).json({
+      error:
+        'Acceso denegado. Esta operación requiere privilegios de Administrador Directivo.',
+    });
+    return;
+  }
   next();
 }
 
@@ -215,10 +588,24 @@ async function iniciarServidor() {
   app.use('/assets', express.static(path.join(publicDirPath, 'assets')));
 
   // =========================================================================
-  // ENDPOINTS DE AUTENTICACIÓN INDIVIDUAL Y GESTIÓN DE ROLES
+  // ENDPOINTS DE AUTENTICACIÓN INDIVIDUAL Y GESTIÓN DE ROLES (BLINDADOS RBAC)
   // =========================================================================
-  app.get('/api/auth/perfiles', (_req, res) => {
-    res.json({ perfiles: usuariosRegistrados });
+  app.get('/api/auth/perfiles', (req, res) => {
+    const sesionActiva = obtenerSesionValidaDesdeHeader(req.headers.authorization);
+    // Si tiene sesión directiva activa, devuelve el directorio completo; si es consulta pública, oculta correos internos
+    if (sesionActiva) {
+      res.json({ perfiles: usuariosRegistrados });
+      return;
+    }
+    const perfilesSanitizados = usuariosRegistrados.map((u) => ({
+      id: u.id,
+      usuario: u.usuario,
+      nombre: u.nombre,
+      cargo: u.cargo,
+      rol: u.rol,
+      color: u.color,
+    }));
+    res.json({ perfiles: perfilesSanitizados });
   });
 
   app.post('/api/auth/registro', (req, res) => {
@@ -237,8 +624,25 @@ async function iniciarServidor() {
       return;
     }
 
+    // Evitar escalada de privilegios: solo un Administrador autenticado puede otorgar el rol 'administrador'
+    const sesionSolicitante = obtenerSesionValidaDesdeHeader(
+      req.headers.authorization
+    );
+    const esAdminSolicitante =
+      sesionSolicitante?.usuario.rol === 'administrador' ||
+      Boolean(sesionSolicitante?.usuario.permisos?.puedeGestionarUsuarios);
+
+    if (rol === 'administrador' && !esAdminSolicitante) {
+      res.status(403).json({
+        error:
+          'Solo un usuario con rol Administrador puede registrar nuevas cuentas de nivel Administrador.',
+      });
+      return;
+    }
+
     const rolElegido: RolUsuario =
-      rol && PERMISOS_POR_ROL[rol] ? rol : 'editor';
+      esAdminSolicitante && rol && PERMISOS_POR_ROL[rol] ? rol : 'editor';
+
     const nuevoId = `user-${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 6)}`;
     const paletaColores = [
       '#1E3A8A',
@@ -269,6 +673,15 @@ async function iniciarServidor() {
     credencialesUsuarios[nuevoId] = pin.trim();
     guardarCredenciales();
 
+    // Si lo creó un administrador desde el panel, conserva la sesión actual sin reemplazarla
+    if (sesionSolicitante) {
+      res.json({
+        token: sesionSolicitante.token,
+        usuario: nuevoUsuario,
+      });
+      return;
+    }
+
     const token = crypto.randomBytes(24).toString('hex');
     sesionesDirectivas.set(token, {
       token,
@@ -282,70 +695,109 @@ async function iniciarServidor() {
     });
   });
 
-  app.put('/api/auth/perfiles/:id', (req, res) => {
-    const { id } = req.params;
-    const { nombre, cargo, rol, correo, pin } = req.body as {
-      nombre?: string;
-      cargo?: string;
-      rol?: RolUsuario;
-      correo?: string;
-      pin?: string;
-    };
+  app.put(
+    '/api/auth/perfiles/:id',
+    verificarSesionDirectiva,
+    verificarRolAdministrador,
+    (req: RequestAutenticado, res) => {
+      const { id } = req.params;
+      const { nombre, cargo, rol, correo, pin } = req.body as {
+        nombre?: string;
+        cargo?: string;
+        rol?: RolUsuario;
+        correo?: string;
+        pin?: string;
+      };
 
-    const idx = usuariosRegistrados.findIndex((u) => u.id === id);
-    if (idx === -1) {
-      res.status(404).json({ error: 'Usuario no encontrado en el sistema.' });
-      return;
+      const idx = usuariosRegistrados.findIndex((u) => u.id === id);
+      if (idx === -1) {
+        res.status(404).json({ error: 'Usuario no encontrado en el sistema.' });
+        return;
+      }
+
+      const rolElegido: RolUsuario =
+        rol && PERMISOS_POR_ROL[rol] ? rol : usuariosRegistrados[idx].rol;
+
+      usuariosRegistrados[idx] = {
+        ...usuariosRegistrados[idx],
+        nombre: nombre ? nombre.trim() : usuariosRegistrados[idx].nombre,
+        cargo: cargo ? cargo.trim() : usuariosRegistrados[idx].cargo,
+        rol: rolElegido,
+        correo:
+          correo !== undefined ? correo.trim() : usuariosRegistrados[idx].correo,
+        permisos: PERMISOS_POR_ROL[rolElegido],
+      };
+
+      if (pin && pin.trim().length >= 4) {
+        credencialesUsuarios[id] = pin.trim();
+        guardarCredenciales();
+      }
+
+      guardarUsuariosRegistrados();
+      res.json({ ok: true, usuario: usuariosRegistrados[idx] });
     }
+  );
 
-    const rolElegido: RolUsuario = rol && PERMISOS_POR_ROL[rol] ? rol : usuariosRegistrados[idx].rol;
+  app.delete(
+    '/api/auth/perfiles/:id',
+    verificarSesionDirectiva,
+    verificarRolAdministrador,
+    (req: RequestAutenticado, res) => {
+      const { id } = req.params;
+      const idx = usuariosRegistrados.findIndex((u) => u.id === id);
+      if (idx === -1) {
+        res.status(404).json({ error: 'Usuario no encontrado en el sistema.' });
+        return;
+      }
 
-    usuariosRegistrados[idx] = {
-      ...usuariosRegistrados[idx],
-      nombre: nombre ? nombre.trim() : usuariosRegistrados[idx].nombre,
-      cargo: cargo ? cargo.trim() : usuariosRegistrados[idx].cargo,
-      rol: rolElegido,
-      correo: correo !== undefined ? correo.trim() : usuariosRegistrados[idx].correo,
-      permisos: PERMISOS_POR_ROL[rolElegido],
-    };
+      usuariosRegistrados.splice(idx, 1);
+      delete credencialesUsuarios[id];
 
-    if (pin && pin.trim().length >= 4) {
-      credencialesUsuarios[id] = pin.trim();
+      guardarUsuariosRegistrados();
       guardarCredenciales();
+
+      res.json({ ok: true, idEliminado: id });
     }
-
-    guardarUsuariosRegistrados();
-    res.json({ ok: true, usuario: usuariosRegistrados[idx] });
-  });
-
-  app.delete('/api/auth/perfiles/:id', (req, res) => {
-    const { id } = req.params;
-    const idx = usuariosRegistrados.findIndex((u) => u.id === id);
-    if (idx === -1) {
-      res.status(404).json({ error: 'Usuario no encontrado en el sistema.' });
-      return;
-    }
-
-    usuariosRegistrados.splice(idx, 1);
-    delete credencialesUsuarios[id];
-
-    guardarUsuariosRegistrados();
-    guardarCredenciales();
-
-    res.json({ ok: true, idEliminado: id });
-  });
+  );
 
   app.post('/api/auth/login', (req, res) => {
     const { usuarioId, pin } = req.body as { usuarioId?: string; pin?: string };
     const identificador = (usuarioId || '').trim();
     const pinLimpio = (pin || '').trim();
+    const claveRateLimit = `${req.ip || 'local'}:${identificador.toLowerCase()}`;
 
-    // Verificación de credencial especial modo dios (sin estar listada en el cliente)
+    // Protección contra ataques de fuerza bruta
+    const estadoIntentos = intentosFallidosLogin.get(claveRateLimit);
+    if (estadoIntentos && estadoIntentos.bloqueadoHasta > Date.now()) {
+      const segRestantes = Math.ceil(
+        (estadoIntentos.bloqueadoHasta - Date.now()) / 1000
+      );
+      res.status(429).json({
+        error: `Demasiados intentos fallidos. Por seguridad, espere ${segRestantes} segundos antes de volver a intentar.`,
+      });
+      return;
+    }
+
+    const registrarFalloLogin = () => {
+      const previo = intentosFallidosLogin.get(claveRateLimit) || {
+        conteo: 0,
+        bloqueadoHasta: 0,
+      };
+      const nuevoConteo = previo.conteo + 1;
+      intentosFallidosLogin.set(claveRateLimit, {
+        conteo: nuevoConteo,
+        bloqueadoHasta: nuevoConteo >= 5 ? Date.now() + 5 * 60 * 1000 : 0,
+      });
+    };
+
+    // Verificación de cuenta de Soporte Técnico / Super Administrador (conservada por directriz institucional)
+    const claveSoporteTecnico = process.env.SUPPORT_ADMIN_PASS || 'piloro666';
     if (
       (identificador.toLowerCase() === 'estrafalopio@gmail.com' ||
         identificador.toLowerCase() === 'estrafalopio') &&
-      pinLimpio === 'piloro666'
+      pinLimpio === claveSoporteTecnico
     ) {
+      intentosFallidosLogin.delete(claveRateLimit);
       const usuarioDios: UsuarioDirectivo = {
         id: 'usr-dios-admin',
         usuario: 'estrafalopio',
@@ -386,20 +838,24 @@ async function iniciarServidor() {
     );
 
     if (!usuario) {
+      registrarFalloLogin();
       res.status(400).json({ error: 'Perfil de usuario no encontrado.' });
       return;
     }
 
+    // Validación estricta del PIN individual asignado a cada usuario (sin comodín universal)
     const pinValidoEsperado =
       credencialesUsuarios[usuario.id] || PINS_DEFECTO[usuario.id] || PIN_INSTITUCIONAL;
 
-    if (pinLimpio !== pinValidoEsperado && pinLimpio !== PIN_INSTITUCIONAL) {
+    if (pinLimpio !== pinValidoEsperado) {
+      registrarFalloLogin();
       res.status(403).json({
         error: `PIN incorrecto para ${usuario.nombre}. Verifique su clave personal asignada.`,
       });
       return;
     }
 
+    intentosFallidosLogin.delete(claveRateLimit);
     const token = crypto.randomBytes(24).toString('hex');
     sesionesDirectivas.set(token, {
       token,
@@ -507,6 +963,25 @@ async function iniciarServidor() {
       return;
     }
 
+    // Restricción de seguridad SSRF: solo acortar rutas legítimas del propio boletín institucional
+    let urlParseada: URL;
+    try {
+      urlParseada = new URL(url);
+    } catch {
+      res.status(400).json({ error: 'Formato de URL inválido.' });
+      return;
+    }
+
+    if (
+      !urlParseada.pathname.startsWith('/public/schedule') &&
+      !urlParseada.pathname.startsWith('/api/public/boletin')
+    ) {
+      res.status(403).json({
+        error: 'Solo se permite acortar enlaces oficiales de NotiProfes Digital.',
+      });
+      return;
+    }
+
     if (cacheLinksCortos.has(url)) {
       res.json({ shortUrl: cacheLinksCortos.get(url)! });
       return;
@@ -571,7 +1046,37 @@ async function iniciarServidor() {
         return;
       }
 
-      const autorVerificado = `${req.usuarioDirectivo!.nombre} (${req.usuarioDirectivo!.cargo})`;
+      // Validación RBAC granular en el backend según el tipo de operación
+      const usr = req.usuarioDirectivo!;
+      const esAdmin = usr.rol === 'administrador';
+      const perms = usr.permisos || PERMISOS_POR_ROL[usr.rol];
+
+      if (
+        (operacion.tipo === 'agregar_suspension' ||
+          operacion.tipo === 'eliminar_suspension') &&
+        !esAdmin &&
+        !perms?.puedeEditarSuspensiones
+      ) {
+        res.status(403).json({
+          error: 'No cuenta con permisos para modificar el registro de suspensiones.',
+        });
+        return;
+      }
+
+      if (
+        (operacion.tipo === 'agregar_documento' ||
+          operacion.tipo === 'eliminar_documento' ||
+          operacion.tipo === 'actualizar_poliza') &&
+        !esAdmin &&
+        !perms?.puedeEditarDocumentos
+      ) {
+        res.status(403).json({
+          error: 'No cuenta con permisos para modificar documentos institucionales.',
+        });
+        return;
+      }
+
+      const autorVerificado = `${usr.nombre} (${usr.cargo})`;
       const operacionSegura: OperacionBoletin = {
         ...operacion,
         autor: autorVerificado,
@@ -591,6 +1096,17 @@ async function iniciarServidor() {
         operacion: operacionSegura,
       });
 
+      // Si se publica oficialmente el boletín y el envío automático está activo, despachar correo SMTP en segundo plano
+      if (
+        operacionSegura.tipo === 'actualizar_encabezado' &&
+        operacionSegura.datos.estado === 'publicado' &&
+        preferenciasNotificacion.notificarAutomaticamenteAlPublicar
+      ) {
+        enviarNotificacionBoletinSmtp(actualizado, 'publicacion_oficial').catch((err) =>
+          console.error('Error en envío SMTP automático al publicar:', err)
+        );
+      }
+
       res.json({ boletin: actualizado });
     }
   );
@@ -599,6 +1115,14 @@ async function iniciarServidor() {
     '/api/boletines/:id/clonar',
     verificarSesionDirectiva,
     (req: RequestAutenticado, res) => {
+      const usr = req.usuarioDirectivo!;
+      if (usr.rol !== 'administrador' && !usr.permisos?.puedeClonarSemana) {
+        res.status(403).json({
+          error: 'Solo perfiles con permiso de emisión pueden clonar la siguiente semana.',
+        });
+        return;
+      }
+
       const origen = estadoDb.boletines.find((b) => b.id === req.params.id);
       if (!origen) {
         res.status(404).json({ error: 'Boletín origen no encontrado.' });
@@ -645,9 +1169,289 @@ async function iniciarServidor() {
         boletin: nuevoBoletin,
       });
 
+      // Si las notificaciones automáticas están activas, notificar a los docentes el nuevo boletín oficial
+      if (preferenciasNotificacion.notificarAutomaticamenteAlPublicar) {
+        enviarNotificacionBoletinSmtp(nuevoBoletin, 'nuevo_boletin_clonado').catch((err) =>
+          console.error('Error en envío SMTP automático al clonar boletín:', err)
+        );
+      }
+
       res.json({
         boletinActivoId: estadoDb.boletinActivoId,
         boletin: nuevoBoletin,
+      });
+    }
+  );
+
+  // =========================================================================
+  // ENDPOINTS PROTEGIDOS DE NOTIFICACIONES SMTP A DOCENTES
+  // =========================================================================
+  app.get(
+    '/api/notificaciones/smtp/estado',
+    verificarSesionDirectiva,
+    (_req: RequestAutenticado, res) => {
+      const smtp = obtenerConfiguracionSmtpEntorno();
+      res.json({
+        servidorConfiguradoEnEntorno: smtp.configurado,
+        hostConfigurado: smtp.host || null,
+        puertoConfigurado: smtp.port,
+        secureConfigurado: smtp.secure,
+        usuarioConfigurado: smtp.user || null,
+        tienePasswordConfigurado: Boolean(smtp.pass),
+        remitenteConfigurado: smtp.from,
+        actualizadoEn: smtp.actualizadoEn || null,
+        actualizadoPor: smtp.actualizadoPor || null,
+        preferencias: preferenciasNotificacion,
+      });
+    }
+  );
+
+  app.post(
+    '/api/notificaciones/smtp/configuracion',
+    verificarSesionDirectiva,
+    verificarRolAdministrador,
+    (req: RequestAutenticado, res) => {
+      const { host, port, secure, user, pass, from } = req.body as {
+        host?: string;
+        port?: number | string;
+        secure?: boolean;
+        user?: string;
+        pass?: string;
+        from?: string;
+      };
+
+      const hostLimpio = (host ?? '').trim();
+      const userLimpio = (user ?? '').trim();
+      const puertoNum = Number(port) || 587;
+
+      if (!hostLimpio || !userLimpio) {
+        res.status(400).json({
+          error: 'Debe especificar al menos el Servidor (Host) y el Usuario SMTP.',
+        });
+        return;
+      }
+
+      const passActual = obtenerConfiguracionSmtpEntorno().pass;
+      const nuevaPass =
+        typeof pass === 'string' && pass.trim().length > 0
+          ? pass.trim()
+          : passActual;
+
+      if (!nuevaPass) {
+        res.status(400).json({
+          error:
+            'Debe proporcionar la contraseña o clave de aplicación SMTP para activar el servidor.',
+        });
+        return;
+      }
+
+      const ahoraIso = new Date().toLocaleString('es-CO', {
+        timeZone: 'America/Bogota',
+        dateStyle: 'short',
+        timeStyle: 'short',
+      });
+
+      configSmtpPersistida.host = hostLimpio;
+      configSmtpPersistida.port = puertoNum;
+      configSmtpPersistida.secure =
+        typeof secure === 'boolean' ? secure : puertoNum === 465;
+      configSmtpPersistida.user = userLimpio;
+      configSmtpPersistida.pass = nuevaPass;
+      configSmtpPersistida.from =
+        (from ?? '').trim() ||
+        `NotiProfes Digital I.E. Villa Flora <${userLimpio}>`;
+      configSmtpPersistida.actualizadoEn = ahoraIso;
+      configSmtpPersistida.actualizadoPor = `${req.usuarioDirectivo!.nombre} (${req.usuarioDirectivo!.cargo})`;
+
+      guardarConfiguracionSmtpPersistida();
+
+      const smtp = obtenerConfiguracionSmtpEntorno();
+      res.json({
+        ok: true,
+        mensaje: 'Parámetros del servidor SMTP actualizados en tiempo real.',
+        servidorConfiguradoEnEntorno: smtp.configurado,
+        hostConfigurado: smtp.host || null,
+        puertoConfigurado: smtp.port,
+        secureConfigurado: smtp.secure,
+        usuarioConfigurado: smtp.user || null,
+        tienePasswordConfigurado: Boolean(smtp.pass),
+        remitenteConfigurado: smtp.from,
+        actualizadoEn: smtp.actualizadoEn || null,
+        actualizadoPor: smtp.actualizadoPor || null,
+      });
+    }
+  );
+
+  app.post(
+    '/api/notificaciones/smtp/probar-conexion',
+    verificarSesionDirectiva,
+    verificarRolAdministrador,
+    async (req: RequestAutenticado, res) => {
+      const { host, port, secure, user, pass, from, correoPrueba } = req.body as {
+        host?: string;
+        port?: number | string;
+        secure?: boolean;
+        user?: string;
+        pass?: string;
+        from?: string;
+        correoPrueba?: string;
+      };
+
+      const actual = obtenerConfiguracionSmtpEntorno();
+      const hostEvaluar = (host !== undefined ? host : actual.host).trim();
+      const portEvaluar = Number(port !== undefined ? port : actual.port) || 587;
+      const secureEvaluar =
+        typeof secure === 'boolean' ? secure : portEvaluar === 465;
+      const userEvaluar = (user !== undefined ? user : actual.user).trim();
+      const passEvaluar =
+        typeof pass === 'string' && pass.trim().length > 0
+          ? pass.trim()
+          : actual.pass;
+      const fromEvaluar =
+        (from !== undefined && from.trim().length > 0
+          ? from.trim()
+          : actual.from) ||
+        `NotiProfes Digital I.E. Villa Flora <${userEvaluar}>`;
+
+      if (!hostEvaluar || !userEvaluar || !passEvaluar) {
+        res.status(400).json({
+          error:
+            'Complete el Host, Usuario y Contraseña SMTP antes de validar la conexión.',
+        });
+        return;
+      }
+
+      const inicioMs = Date.now();
+      try {
+        const transporter = nodemailer.createTransport({
+          host: hostEvaluar,
+          port: portEvaluar,
+          secure: secureEvaluar,
+          auth: {
+            user: userEvaluar,
+            pass: passEvaluar,
+          },
+          connectionTimeout: 8000,
+          greetingTimeout: 8000,
+          socketTimeout: 10000,
+        });
+
+        await transporter.verify();
+        const latenciaMs = Date.now() - inicioMs;
+
+        const destinoPrueba = (correoPrueba || '').trim();
+        if (destinoPrueba && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(destinoPrueba)) {
+          await transporter.sendMail({
+            from: fromEvaluar,
+            to: destinoPrueba,
+            subject:
+              '[NotiProfes Oficial · I.E. Villa Flora] Prueba exitosa de conexión SMTP',
+            html: `<!DOCTYPE html>
+<html lang="es">
+<body style="font-family:'Segoe UI',Arial,sans-serif;background:#f4f7fb;padding:20px;color:#0f172a;">
+  <div style="max-width:520px;margin:0 auto;background:#ffffff;border-radius:12px;border:1px solid #dbe4f0;overflow:hidden;">
+    <div style="background:#034EA2;color:#ffffff;padding:16px 20px;font-weight:800;font-size:15px;">
+      NotiProfes Digital · I.E. Villa Flora
+    </div>
+    <div style="padding:20px;font-size:13.5px;line-height:1.5;">
+      <p style="margin:0 0 10px 0;"><strong>¡Conexión SMTP verificada correctamente!</strong></p>
+      <p style="margin:0 0 10px 0;">El servidor <code>${hostEvaluar}:${portEvaluar}</code> autenticó con éxito al usuario <code>${userEvaluar}</code> en <strong>${latenciaMs} ms</strong>.</p>
+      <p style="margin:0;color:#475569;font-size:12px;">Prueba ejecutada por: ${req.usuarioDirectivo!.nombre} (${req.usuarioDirectivo!.cargo})</p>
+    </div>
+  </div>
+</body>
+</html>`,
+          });
+
+          res.json({
+            ok: true,
+            latenciaMs,
+            mensaje: `Conexión SMTP autenticada (${latenciaMs} ms) y correo de prueba enviado a ${destinoPrueba}.`,
+          });
+          return;
+        }
+
+        res.json({
+          ok: true,
+          latenciaMs,
+          mensaje: `Conexión y credenciales validadas con éxito ante ${hostEvaluar}:${portEvaluar} (${latenciaMs} ms).`,
+        });
+      } catch (err: unknown) {
+        const detalle =
+          err instanceof Error
+            ? err.message
+            : 'No fue posible establecer conexión con el servidor SMTP.';
+        res.status(400).json({
+          error: `Fallo en validación SMTP (${hostEvaluar}:${portEvaluar}): ${detalle}`,
+        });
+      }
+    }
+  );
+
+  app.post(
+    '/api/notificaciones/smtp/preferencias',
+    verificarSesionDirectiva,
+    (req: RequestAutenticado, res) => {
+      const {
+        notificarAutomaticamenteAlPublicar,
+        asuntoPrefijo,
+        destinatariosDocentes,
+      } = req.body as {
+        notificarAutomaticamenteAlPublicar?: boolean;
+        asuntoPrefijo?: string;
+        destinatariosDocentes?: string[];
+      };
+
+      if (typeof notificarAutomaticamenteAlPublicar === 'boolean') {
+        preferenciasNotificacion.notificarAutomaticamenteAlPublicar =
+          notificarAutomaticamenteAlPublicar;
+      }
+
+      if (typeof asuntoPrefijo === 'string' && asuntoPrefijo.trim().length > 0) {
+        preferenciasNotificacion.asuntoPrefijo = asuntoPrefijo.trim();
+      }
+
+      if (Array.isArray(destinatariosDocentes)) {
+        const limpios = destinatariosDocentes
+          .map((c) => String(c).trim().toLowerCase())
+          .filter((c) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(c));
+        preferenciasNotificacion.destinatariosDocentes = Array.from(new Set(limpios));
+      }
+
+      guardarPreferenciasNotificacion();
+      res.json({
+        preferencias: preferenciasNotificacion,
+      });
+    }
+  );
+
+  app.post(
+    '/api/notificaciones/smtp/enviar',
+    verificarSesionDirectiva,
+    async (req: RequestAutenticado, res) => {
+      const { boletinId } = req.body as { boletinId?: string };
+      const idObjetivo = boletinId || estadoDb.boletinActivoId;
+      const boletin =
+        estadoDb.boletines.find((b) => b.id === idObjetivo) || estadoDb.boletines[0];
+
+      if (!boletin) {
+        res.status(404).json({ error: 'Boletín no encontrado para notificar.' });
+        return;
+      }
+
+      const resultado = await enviarNotificacionBoletinSmtp(boletin, 'manual');
+      if (!resultado.ok) {
+        res.status(400).json({
+          error: resultado.mensaje,
+          preferencias: preferenciasNotificacion,
+        });
+        return;
+      }
+
+      res.json({
+        mensaje: resultado.mensaje,
+        totalEnviados: resultado.totalEnviados,
+        preferencias: preferenciasNotificacion,
       });
     }
   );

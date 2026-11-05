@@ -127,6 +127,17 @@ export interface ConfiguracionCalendarioAnual {
   actualizadoPor?: string;
 }
 
+export interface DrivePdfMetadata {
+  fileId: string;
+  fileName: string;
+  folderId?: string;
+  folderName?: string;
+  webViewLink: string;
+  version: number;
+  sincronizadoEn: string; // ISO string
+  sincronizadoPor: string;
+}
+
 export interface BoletinSemanal {
   id: string;
   numero: number;
@@ -158,6 +169,7 @@ export interface BoletinSemanal {
   firmas: FirmaDirectiva[];
   historialCambios: RegistroHistorial[];
   calendarioOficial?: ConfiguracionCalendarioAnual;
+  drivePdfInfo?: DrivePdfMetadata;
 }
 
 export type RolUsuario = 'administrador' | 'editor';
@@ -300,5 +312,10 @@ export type OperacionBoletin =
   | {
       tipo: 'actualizar_calendario_anual';
       calendario: ConfiguracionCalendarioAnual;
+      autor: string;
+    }
+  | {
+      tipo: 'actualizar_drive_pdf';
+      drivePdfInfo: DrivePdfMetadata;
       autor: string;
     };
