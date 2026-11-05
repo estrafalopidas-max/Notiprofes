@@ -5,10 +5,14 @@ import path from 'node:path';
 import express, { NextFunction, Request, Response } from 'express';
 import { createServer as createViteServer } from 'vite';
 import { WebSocket, WebSocketServer } from 'ws';
+import { GoogleGenAI, Type } from '@google/genai';
 import { BOLETIN_40_SEED, PERMISOS_POR_ROL, USUARIOS_DIRECTIVOS } from './src/data/seedNotiprofes40';
 import {
+  BloqueCalendarioOficial,
   BoletinSemanal,
+  ConfiguracionCalendarioAnual,
   OperacionBoletin,
+  PeriodoAcademicoConfig,
   PresenciaActiva,
   RolUsuario,
   UsuarioDirectivo,
@@ -18,6 +22,11 @@ import {
   clonarBoletinSiguienteSemana,
   generarHtmlPublicoBoletin,
 } from './src/utils/boletinLogic';
+import {
+  formatearFechaIsoATextoLargo,
+  generarFestivosColombiaAnio,
+  generarPlantillaCalendarioAnual,
+} from './src/utils/calendarioEscolar2026';
 
 // Configuración de almacenamiento persistente protegido para Docker / TrueNAS (/app/data)
 function resolverDirectorioDatos(): string {
@@ -193,7 +202,7 @@ async function iniciarServidor() {
   const server = http.createServer(app);
   const estadoDb = cargarBaseDatos();
 
-  app.use(express.json({ limit: '2mb' }));
+  app.use(express.json({ limit: '15mb' }));
 
   // Bloquear explícitamente cualquier intento de acceso estático a /data o /app/data
   app.use(['/data', '/app/data'], (_req, res) => {
@@ -640,6 +649,319 @@ async function iniciarServidor() {
         boletinActivoId: estadoDb.boletinActivoId,
         boletin: nuevoBoletin,
       });
+    }
+  );
+
+  // =========================================================================
+  // ENDPOINTS DE EXTRACCIÓN CON IA Y GENERACIÓN DE CALENDARIO ACADÉMICO ANUAL
+  // =========================================================================
+  app.post(
+    '/api/calendario/generar-plantilla-anual',
+    verificarSesionDirectiva,
+    (req: RequestAutenticado, res) => {
+      const anio = Number(req.body?.anio) || 2027;
+      if (anio < 2025 || anio > 2040) {
+        res.status(400).json({ error: 'Ingrese un año escolar válido entre 2025 y 2040.' });
+        return;
+      }
+      const plantilla = generarPlantillaCalendarioAnual(anio);
+      res.json({
+        calendario: plantilla,
+        origen: 'algoritmico',
+      });
+    }
+  );
+
+  app.post(
+    '/api/calendario/analizar-decreto',
+    verificarSesionDirectiva,
+    async (req: RequestAutenticado, res) => {
+      const { pdfBase64, mimeType, textoResolucion, anioObjetivo } = req.body as {
+        pdfBase64?: string;
+        mimeType?: string;
+        textoResolucion?: string;
+        anioObjetivo?: number;
+      };
+
+      const anioRef = Number(anioObjetivo) || 2027;
+
+      if (!pdfBase64 && (!textoResolucion || textoResolucion.trim().length < 20)) {
+        res.status(400).json({
+          error:
+            'Debe adjuntar el archivo PDF de la Resolución del Calendario Académico o pegar el texto de los artículos.',
+        });
+        return;
+      }
+
+      if (!process.env.GEMINI_API_KEY) {
+        res.status(503).json({
+          error:
+            'La variable de entorno GEMINI_API_KEY no está configurada en este servidor. Puede usar el botón «Generar Plantilla Base + Festivos» para crear el calendario sin IA y ajustar las fechas manualmente.',
+        });
+        return;
+      }
+
+      try {
+        const ai = new GoogleGenAI({
+          apiKey: process.env.GEMINI_API_KEY,
+          httpOptions: {
+            headers: {
+              'User-Agent': 'aistudio-build',
+            },
+          },
+        });
+
+        const esquemaBloque = {
+          type: Type.OBJECT,
+          properties: {
+            desde: {
+              type: Type.STRING,
+              description: 'Fecha de inicio del bloque en formato YYYY-MM-DD',
+            },
+            hasta: {
+              type: Type.STRING,
+              description: 'Fecha de finalización del bloque en formato YYYY-MM-DD',
+            },
+            semanas: {
+              type: Type.INTEGER,
+              description: 'Cantidad de semanas que dura este bloque',
+            },
+            duracionTexto: {
+              type: Type.STRING,
+              description: 'Texto descriptivo de duración, ej: Nueve (09) semanas',
+            },
+          },
+          required: ['desde', 'hasta', 'semanas'],
+        };
+
+        const parts: Array<
+          | { text: string }
+          | { inlineData: { mimeType: string; data: string } }
+        > = [];
+
+        if (pdfBase64) {
+          const base64Limpio = pdfBase64.replace(/^data:[^;]+;base64,/, '');
+          parts.push({
+            inlineData: {
+              mimeType: mimeType || 'application/pdf',
+              data: base64Limpio,
+            },
+          });
+        }
+
+        if (textoResolucion && textoResolucion.trim().length > 0) {
+          parts.push({
+            text: `Texto adicional de la resolución:\n${textoResolucion.trim()}`,
+          });
+        }
+
+        parts.push({
+          text: `Extrae del documento de Resolución de Calendario Académico (año objetivo sugerido: ${anioRef}) los bloques oficiales:
+1. Año escolar de vigencia (ej. 2027).
+2. Resumen corto del título o número de la resolución oficial.
+3. Semanas Lectivas (Artículo de 40 semanas de trabajo académico con estudiantes, usualmente dividido en 4 bloques).
+4. Semanas de Desarrollo Institucional (6 semanas de planeación/desarrollo institucional).
+5. Vacaciones de Docentes y Directivos Docentes (7 semanas).
+6. Receso Estudiantil (13 semanas).
+7. Los 3 Periodos Académicos (Primer Periodo: 13 semanas, Segundo Periodo: 13 semanas, Tercer Periodo: 14 semanas) calculando sus fechas de inicio y fin según las semanas lectivas extraídas.
+Devuelve todas las fechas estrictamente en formato ISO YYYY-MM-DD.`,
+        });
+
+        const response = await ai.models.generateContent({
+          model: 'gemini-3.8-flash',
+          contents: { parts },
+          config: {
+            systemInstruction:
+              'Eres un asistente jurídico y pedagógico experto en resoluciones de Calendario Académico de la Secretaría de Educación de Medellín y Colombia. Extraes fechas exactas en formato YYYY-MM-DD y conteos de semanas sin inventar datos fuera del decreto.',
+            responseMimeType: 'application/json',
+            responseSchema: {
+              type: Type.OBJECT,
+              properties: {
+                anio: {
+                  type: Type.INTEGER,
+                  description: 'Año del calendario académico extraído, ej. 2027',
+                },
+                resolucionTexto: {
+                  type: Type.STRING,
+                  description:
+                    'Descripción oficial de la resolución extraída, incluyendo número o resumen de semanas',
+                },
+                semanasLectivas: {
+                  type: Type.ARRAY,
+                  items: esquemaBloque,
+                },
+                semanasDesarrollo: {
+                  type: Type.ARRAY,
+                  items: esquemaBloque,
+                },
+                vacacionesDocentes: {
+                  type: Type.ARRAY,
+                  items: esquemaBloque,
+                },
+                recesoEstudiantil: {
+                  type: Type.ARRAY,
+                  items: esquemaBloque,
+                },
+                periodosAcademicos: {
+                  type: Type.ARRAY,
+                  items: {
+                    type: Type.OBJECT,
+                    properties: {
+                      numero: { type: Type.INTEGER },
+                      nombreCorto: { type: Type.STRING },
+                      fechaInicio: { type: Type.STRING },
+                      fechaFin: { type: Type.STRING },
+                      textoRango: { type: Type.STRING },
+                      totalSemanasLectivas: { type: Type.INTEGER },
+                    },
+                    required: [
+                      'numero',
+                      'nombreCorto',
+                      'fechaInicio',
+                      'fechaFin',
+                      'textoRango',
+                      'totalSemanasLectivas',
+                    ],
+                  },
+                },
+              },
+              required: [
+                'anio',
+                'resolucionTexto',
+                'semanasLectivas',
+                'semanasDesarrollo',
+                'vacacionesDocentes',
+                'recesoEstudiantil',
+              ],
+            },
+          },
+        });
+
+        const rawJson = (response.text ?? '{}').trim();
+        const extraido = JSON.parse(rawJson) as {
+          anio?: number;
+          resolucionTexto?: string;
+          semanasLectivas?: Array<{
+            desde: string;
+            hasta: string;
+            semanas: number;
+            duracionTexto?: string;
+          }>;
+          semanasDesarrollo?: Array<{
+            desde: string;
+            hasta: string;
+            semanas: number;
+            duracionTexto?: string;
+          }>;
+          vacacionesDocentes?: Array<{
+            desde: string;
+            hasta: string;
+            semanas: number;
+            duracionTexto?: string;
+          }>;
+          recesoEstudiantil?: Array<{
+            desde: string;
+            hasta: string;
+            semanas: number;
+            duracionTexto?: string;
+          }>;
+          periodosAcademicos?: Array<{
+            numero: number;
+            nombreCorto: string;
+            fechaInicio: string;
+            fechaFin: string;
+            textoRango: string;
+            totalSemanasLectivas: number;
+          }>;
+        };
+
+        const anioFinal = extraido.anio && extraido.anio >= 2025 ? extraido.anio : anioRef;
+        const plantillaRespaldo = generarPlantillaCalendarioAnual(anioFinal);
+
+        const normalizarBloques = (
+          lista:
+            | Array<{
+                desde: string;
+                hasta: string;
+                semanas: number;
+                duracionTexto?: string;
+              }>
+            | undefined,
+          prefijo: string,
+          fallback: BloqueCalendarioOficial[]
+        ): BloqueCalendarioOficial[] => {
+          if (!Array.isArray(lista) || lista.length === 0) return fallback;
+          return lista.map((item, idx) => ({
+            id: `${prefijo}-${idx + 1}`,
+            desde: item.desde,
+            hasta: item.hasta,
+            desdeTexto: formatearFechaIsoATextoLargo(item.desde),
+            hastaTexto: formatearFechaIsoATextoLargo(item.hasta),
+            semanas: Number(item.semanas) || 1,
+            duracionTexto: item.duracionTexto || `${item.semanas} semana(s)`,
+          }));
+        };
+
+        const periodosNormalizados: PeriodoAcademicoConfig[] =
+          Array.isArray(extraido.periodosAcademicos) &&
+          extraido.periodosAcademicos.length === 3
+            ? extraido.periodosAcademicos.map((p, idx) => {
+                const num = (idx + 1) as 1 | 2 | 3;
+                return {
+                  numero: num,
+                  ordinalSup: num === 2 ? 'do' : 'er',
+                  nombreCorto: p.nombreCorto || `Periodo ${num}`,
+                  fechaInicio: p.fechaInicio,
+                  fechaFin: p.fechaFin,
+                  textoRango: p.textoRango,
+                  totalSemanasLectivas: Number(p.totalSemanasLectivas) || (num === 3 ? 14 : 13),
+                };
+              })
+            : plantillaRespaldo.periodosAcademicos;
+
+        const calendarioFinal: ConfiguracionCalendarioAnual = {
+          anio: anioFinal,
+          resolucionTexto:
+            extraido.resolucionTexto ||
+            `Resolución Oficial Distrito de Medellín (${anioFinal}): 40 semanas lectivas, 6 de desarrollo institucional, 7 de vacaciones docentes, 13 de receso estudiantil y 18 festivos`,
+          semanasLectivas: normalizarBloques(
+            extraido.semanasLectivas,
+            'lectiva',
+            plantillaRespaldo.semanasLectivas
+          ),
+          semanasDesarrollo: normalizarBloques(
+            extraido.semanasDesarrollo,
+            'desarrollo',
+            plantillaRespaldo.semanasDesarrollo
+          ),
+          vacacionesDocentes: normalizarBloques(
+            extraido.vacacionesDocentes,
+            'vac-doc',
+            plantillaRespaldo.vacacionesDocentes
+          ),
+          recesoEstudiantil: normalizarBloques(
+            extraido.recesoEstudiantil,
+            'receso-est',
+            plantillaRespaldo.recesoEstudiantil
+          ),
+          periodosAcademicos: periodosNormalizados,
+          festivos: generarFestivosColombiaAnio(anioFinal),
+        };
+
+        res.json({
+          calendario: calendarioFinal,
+          origen: 'ia_gemini',
+        });
+      } catch (err: unknown) {
+        const mensaje =
+          err instanceof Error
+            ? err.message
+            : 'Error desconocido al analizar el decreto con Gemini.';
+        console.error('Error en /api/calendario/analizar-decreto:', mensaje);
+        res.status(500).json({
+          error: `No fue posible procesar el decreto con IA: ${mensaje}`,
+        });
+      }
     }
   );
 

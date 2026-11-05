@@ -1,31 +1,18 @@
-import { BoletinSemanal, DiaProgramacion } from '../types/notiprofes';
+import {
+  BloqueCalendarioOficial,
+  BoletinSemanal,
+  ConfiguracionCalendarioAnual,
+  DiaProgramacion,
+  FestivoColombia,
+  PeriodoAcademicoConfig,
+} from '../types/notiprofes';
 
-export interface BloqueCalendarioOficial {
-  id: string;
-  desde: string; // YYYY-MM-DD
-  hasta: string; // YYYY-MM-DD
-  desdeTexto: string;
-  hastaTexto: string;
-  semanas: number;
-  duracionTexto: string;
-}
-
-export interface FestivoColombia {
-  fecha: string; // YYYY-MM-DD
-  diaMesTexto: string; // ej. "2 de noviembre"
-  diaSemana: string; // ej. "Lunes"
-  nombre: string;
-}
-
-export interface PeriodoAcademicoConfig {
-  numero: 1 | 2 | 3;
-  ordinalSup: 'er' | 'do';
-  nombreCorto: string;
-  fechaInicio: string; // YYYY-MM-DD
-  fechaFin: string; // YYYY-MM-DD
-  textoRango: string;
-  totalSemanasLectivas: number;
-}
+export type {
+  BloqueCalendarioOficial,
+  ConfiguracionCalendarioAnual,
+  FestivoColombia,
+  PeriodoAcademicoConfig,
+};
 
 /**
  * Artículo 2 - Resolución Calendario Académico 2026 (Alcaldía de Medellín)
@@ -399,10 +386,281 @@ function aFechaIso(anio: number, mesIndex: number, dia: number): string {
 }
 
 /**
- * Genera la lista de los 40 lunes de las semanas lectivas de 2026
- * según el Artículo 2 de la Resolución de la Alcaldía de Medellín.
+ * Calcula los 18 Festivos Oficiales de Colombia para cualquier año (ej. 2026, 2027, 2028)
+ * aplicando el algoritmo de Butcher para Pascua y la Ley 51 de 1983 (Ley Emiliani).
  */
-export function obtenerSemanasLectivasAnuales2026(): {
+export function generarFestivosColombiaAnio(anio: number): FestivoColombia[] {
+  if (anio === 2026) {
+    return [...FESTIVOS_COLOMBIA_2026];
+  }
+
+  const diasSemanaNombres = [
+    'Domingo',
+    'Lunes',
+    'Martes',
+    'Miércoles',
+    'Jueves',
+    'Viernes',
+    'Sábado',
+  ];
+
+  const formatearFestivo = (fechaUtc: Date, nombre: string): FestivoColombia => {
+    const iso = fechaUtc.toISOString().slice(0, 10);
+    const dia = fechaUtc.getUTCDate();
+    const mesTexto = NOMBRES_MESES[fechaUtc.getUTCMonth()];
+    const diaSemana = diasSemanaNombres[fechaUtc.getUTCDay()];
+    return {
+      fecha: iso,
+      diaMesTexto: `${dia} de ${mesTexto}`,
+      diaSemana,
+      nombre,
+    };
+  };
+
+  // Traslada una fecha al siguiente lunes si no cae en lunes (Ley Emiliani)
+  const trasladarALunesEmiliani = (mesIndex: number, dia: number): Date => {
+    const d = new Date(Date.UTC(anio, mesIndex, dia));
+    const dow = d.getUTCDay(); // 0 = Dom, 1 = Lun, ..., 6 = Sáb
+    if (dow === 1) return d;
+    const diasSumar = dow === 0 ? 1 : 8 - dow;
+    return new Date(d.getTime() + diasSumar * 86400000);
+  };
+
+  // Algoritmo de Butcher para Domingo de Pascua
+  const a = anio % 19;
+  const b = Math.floor(anio / 100);
+  const c = anio % 100;
+  const d = Math.floor(b / 4);
+  const e = b % 4;
+  const f = Math.floor((b + 8) / 25);
+  const g = Math.floor((b - f + 1) / 3);
+  const h = (19 * a + b - d - g + 15) % 30;
+  const i = Math.floor(c / 4);
+  const k = c % 4;
+  const l = (32 + 2 * e + 2 * i - h - k) % 7;
+  const m = Math.floor((a + 11 * h + 22 * l) / 451);
+  const mesPascua = Math.floor((h + l - 7 * m + 114) / 31) - 1; // 0-indexed
+  const diaPascua = ((h + l - 7 * m + 114) % 31) + 1;
+  const domingoPascua = new Date(Date.UTC(anio, mesPascua, diaPascua));
+
+  const sumarDiasPascua = (dias: number): Date =>
+    new Date(domingoPascua.getTime() + dias * 86400000);
+
+  const lista: FestivoColombia[] = [
+    // Fijos inamovibles
+    formatearFestivo(new Date(Date.UTC(anio, 0, 1)), 'Año Nuevo'),
+    formatearFestivo(new Date(Date.UTC(anio, 4, 1)), 'Día del Trabajo'),
+    formatearFestivo(new Date(Date.UTC(anio, 6, 20)), 'Día de la Independencia de Colombia'),
+    formatearFestivo(new Date(Date.UTC(anio, 7, 7)), 'Batalla de Boyacá'),
+    formatearFestivo(new Date(Date.UTC(anio, 11, 8)), 'Día de la Inmaculada Concepción'),
+    formatearFestivo(new Date(Date.UTC(anio, 11, 25)), 'Navidad'),
+
+    // Ley Emiliani (se trasladan al lunes siguiente)
+    formatearFestivo(trasladarALunesEmiliani(0, 6), 'Día de los Reyes Magos'),
+    formatearFestivo(trasladarALunesEmiliani(2, 19), 'Día de San José'),
+    formatearFestivo(trasladarALunesEmiliani(5, 29), 'San Pedro y San Pablo'),
+    formatearFestivo(trasladarALunesEmiliani(7, 15), 'La Asunción de la Virgen'),
+    formatearFestivo(trasladarALunesEmiliani(9, 12), 'Día de la Diversidad Étnica y Cultural'),
+    formatearFestivo(trasladarALunesEmiliani(10, 1), 'Día de Todos los Santos'),
+    formatearFestivo(trasladarALunesEmiliani(10, 11), 'Independencia de Cartagena'),
+
+    // Religiosos relativos a Pascua
+    formatearFestivo(sumarDiasPascua(-3), 'Jueves Santo'),
+    formatearFestivo(sumarDiasPascua(-2), 'Viernes Santo'),
+    formatearFestivo(sumarDiasPascua(43), 'Día de la Ascensión'),
+    formatearFestivo(sumarDiasPascua(64), 'Corpus Christi'),
+    formatearFestivo(sumarDiasPascua(71), 'Sagrado Corazón de Jesús'),
+  ];
+
+  return lista.sort((x, y) => x.fecha.localeCompare(y.fecha));
+}
+
+export function formatearFechaIsoATextoLargo(iso: string): string {
+  const partes = iso.split('-').map(Number);
+  if (partes.length !== 3 || partes.some(isNaN)) return iso;
+  const [y, m, d] = partes;
+  const mes = NOMBRES_MESES[m - 1] || 'enero';
+  return `${String(d).padStart(2, '0')} de ${mes} de ${y}`;
+}
+
+export const CALENDARIO_OFICIAL_2026_DEFAULT: ConfiguracionCalendarioAnual = {
+  anio: 2026,
+  resolucionTexto:
+    'Resolución Oficial Distrito de Medellín: 40 semanas lectivas, 6 de desarrollo institucional, 7 de vacaciones docentes, 13 de receso estudiantil y 18 festivos',
+  semanasLectivas: SEMANAS_LECTIVAS_2026,
+  semanasDesarrollo: SEMANAS_DESARROLLO_INSTITUCIONAL_2026,
+  vacacionesDocentes: VACACIONES_DOCENTES_2026,
+  recesoEstudiantil: RECESO_ESTUDIANTIL_2026,
+  periodosAcademicos: PERIODOS_ACADEMICOS_2026,
+  festivos: FESTIVOS_COLOMBIA_2026,
+};
+
+export function obtenerCalendarioOficialBoletin(
+  boletin?: BoletinSemanal
+): ConfiguracionCalendarioAnual {
+  if (
+    boletin?.calendarioOficial &&
+    Array.isArray(boletin.calendarioOficial.semanasLectivas) &&
+    boletin.calendarioOficial.semanasLectivas.length > 0
+  ) {
+    return boletin.calendarioOficial;
+  }
+  return CALENDARIO_OFICIAL_2026_DEFAULT;
+}
+
+/**
+ * Genera una plantilla base para cualquier año (ej. 2027) proyectando los lunes equivalentes
+ * y calculando automáticamente los 18 festivos de Colombia de ese año.
+ */
+export function generarPlantillaCalendarioAnual(anio: number): ConfiguracionCalendarioAnual {
+  if (anio === 2026) {
+    return JSON.parse(JSON.stringify(CALENDARIO_OFICIAL_2026_DEFAULT));
+  }
+
+  // Encontrar el lunes de la cuarta semana de enero del año objetivo
+  const buscarLunesCercano = (mesIdx: number, diaRef: number): Date => {
+    const fecha = new Date(Date.UTC(anio, mesIdx, diaRef));
+    const dow = fecha.getUTCDay();
+    const ajuste = dow === 0 ? 1 : dow === 1 ? 0 : 8 - dow;
+    return new Date(fecha.getTime() + ajuste * 86400000);
+  };
+
+  const crearBloque = (
+    id: string,
+    lunesInicio: Date,
+    semanas: number,
+    etiquetaSemanas: string
+  ): BloqueCalendarioOficial => {
+    const domingoFin = new Date(lunesInicio.getTime() + (semanas * 7 - 1) * 86400000);
+    const desde = lunesInicio.toISOString().slice(0, 10);
+    const hasta = domingoFin.toISOString().slice(0, 10);
+    return {
+      id,
+      desde,
+      hasta,
+      desdeTexto: formatearFechaIsoATextoLargo(desde),
+      hastaTexto: formatearFechaIsoATextoLargo(hasta),
+      semanas,
+      duracionTexto: etiquetaSemanas,
+    };
+  };
+
+  const l1 = buscarLunesCercano(0, 24);
+  const l2 = new Date(l1.getTime() + 10 * 7 * 86400000);
+  const l3 = new Date(l2.getTime() + 14 * 7 * 86400000);
+  const l4 = new Date(l3.getTime() + 13 * 7 * 86400000);
+
+  const semanasLectivas: BloqueCalendarioOficial[] = [
+    crearBloque('lectiva-1', l1, 9, 'Nueve (09) semanas'),
+    crearBloque('lectiva-2', l2, 11, 'Once (11) semanas'),
+    crearBloque('lectiva-3', l3, 12, 'Doce (12) semanas'),
+    crearBloque('lectiva-4', l4, 8, 'Ocho (8) semanas'),
+  ];
+
+  const d1 = new Date(l1.getTime() - 2 * 7 * 86400000);
+  const d2 = new Date(l1.getTime() + 9 * 7 * 86400000);
+  const d3 = new Date(l3.getTime() - 1 * 7 * 86400000);
+  const d4 = new Date(l3.getTime() + 12 * 7 * 86400000);
+  const d5 = new Date(l4.getTime() + 8 * 7 * 86400000);
+
+  const semanasDesarrollo: BloqueCalendarioOficial[] = [
+    crearBloque('desarrollo-1', d1, 2, 'Dos (2) semanas'),
+    crearBloque('desarrollo-2', d2, 1, 'Una (1) semana'),
+    crearBloque('desarrollo-3', d3, 1, 'Una (1) semana'),
+    crearBloque('desarrollo-4', d4, 1, 'Una (1) semana'),
+    crearBloque('desarrollo-5', d5, 1, 'Una (1) semana'),
+  ];
+
+  const v1 = new Date(d1.getTime() - 2 * 7 * 86400000);
+  const v2 = new Date(l2.getTime() + 11 * 7 * 86400000);
+  const v3 = new Date(d5.getTime() + 1 * 7 * 86400000);
+
+  const vacacionesDocentes: BloqueCalendarioOficial[] = [
+    crearBloque('vac-doc-1', v1, 2, 'Dos (2) semanas'),
+    crearBloque('vac-doc-2', v2, 2, 'Dos (2) semanas'),
+    crearBloque('vac-doc-3', v3, 3, 'Tres (3) semanas'),
+  ];
+
+  const r1 = new Date(l1.getTime() - 4 * 7 * 86400000);
+  const r2 = d2;
+  const r3 = v2;
+  const r4 = d4;
+  const r5 = d5;
+
+  const recesoEstudiantil: BloqueCalendarioOficial[] = [
+    crearBloque('receso-est-1', r1, 4, 'Cuatro (4) semanas'),
+    crearBloque('receso-est-2', r2, 1, 'Una (1) semana'),
+    crearBloque('receso-est-3', r3, 3, 'Tres (3) semanas'),
+    crearBloque('receso-est-4', r4, 1, 'Una (1) semana'),
+    crearBloque('receso-est-5', r5, 4, 'Cuatro (4) semanas'),
+  ];
+
+  const p1Fin = new Date(l2.getTime() + 4 * 7 * 86400000 - 86400000);
+  const p2Ini = new Date(p1Fin.getTime() + 86400000);
+  const p2Fin = new Date(l3.getTime() + 6 * 7 * 86400000 - 86400000);
+  const p3Ini = new Date(p2Fin.getTime() + 86400000);
+  const p3Fin = new Date(l4.getTime() + 8 * 7 * 86400000 - 86400000);
+
+  const periodosAcademicos: PeriodoAcademicoConfig[] = [
+    {
+      numero: 1,
+      ordinalSup: 'er',
+      nombreCorto: 'Primer Periodo',
+      fechaInicio: semanasLectivas[0].desde,
+      fechaFin: p1Fin.toISOString().slice(0, 10),
+      textoRango: `Este primer período inició el ${formatearFechaIsoATextoLargo(
+        semanasLectivas[0].desde
+      ).replace(` de ${anio}`, '')} y termina el ${formatearFechaIsoATextoLargo(
+        p1Fin.toISOString().slice(0, 10)
+      ).replace(` de ${anio}`, '')}`,
+      totalSemanasLectivas: 13,
+    },
+    {
+      numero: 2,
+      ordinalSup: 'do',
+      nombreCorto: 'Segundo Periodo',
+      fechaInicio: p2Ini.toISOString().slice(0, 10),
+      fechaFin: p2Fin.toISOString().slice(0, 10),
+      textoRango: `Este segundo período inició el ${formatearFechaIsoATextoLargo(
+        p2Ini.toISOString().slice(0, 10)
+      ).replace(` de ${anio}`, '')} y termina el ${formatearFechaIsoATextoLargo(
+        p2Fin.toISOString().slice(0, 10)
+      ).replace(` de ${anio}`, '')}`,
+      totalSemanasLectivas: 13,
+    },
+    {
+      numero: 3,
+      ordinalSup: 'er',
+      nombreCorto: 'Tercer Periodo',
+      fechaInicio: p3Ini.toISOString().slice(0, 10),
+      fechaFin: p3Fin.toISOString().slice(0, 10),
+      textoRango: `Este tercer período inició el ${formatearFechaIsoATextoLargo(
+        p3Ini.toISOString().slice(0, 10)
+      ).replace(` de ${anio}`, '')} y termina el ${formatearFechaIsoATextoLargo(
+        p3Fin.toISOString().slice(0, 10)
+      ).replace(` de ${anio}`, '')}`,
+      totalSemanasLectivas: 14,
+    },
+  ];
+
+  return {
+    anio,
+    resolucionTexto: `Resolución Oficial Distrito de Medellín (${anio}): 40 semanas lectivas, 6 de desarrollo institucional, 7 de vacaciones docentes, 13 de receso estudiantil y 18 festivos`,
+    semanasLectivas,
+    semanasDesarrollo,
+    vacacionesDocentes,
+    recesoEstudiantil,
+    periodosAcademicos,
+    festivos: generarFestivosColombiaAnio(anio),
+  };
+}
+
+/**
+ * Genera la lista de los 40 lunes de las semanas lectivas según la configuración activa.
+ */
+export function obtenerSemanasLectivasAnuales2026(
+  calendario: ConfiguracionCalendarioAnual = CALENDARIO_OFICIAL_2026_DEFAULT
+): {
   semanaAnual: number;
   lunesIso: string;
   viernesIso: string;
@@ -421,8 +679,12 @@ export function obtenerSemanasLectivasAnuales2026(): {
 
   let contadorAnual = 0;
   const contadoresPeriodo: Record<1 | 2 | 3, number> = { 1: 0, 2: 0, 3: 0 };
+  const periodos =
+    calendario.periodosAcademicos?.length === 3
+      ? calendario.periodosAcademicos
+      : PERIODOS_ACADEMICOS_2026;
 
-  for (const bloque of SEMANAS_LECTIVAS_2026) {
+  for (const bloque of calendario.semanasLectivas) {
     const [y, m, d] = bloque.desde.split('-').map(Number);
     const fechaCursor = new Date(Date.UTC(y, m - 1, d));
 
@@ -442,7 +704,7 @@ export function obtenerSemanasLectivasAnuales2026(): {
       }
 
       contadoresPeriodo[periodo] += 1;
-      const configPeriodo = PERIODOS_ACADEMICOS_2026.find((p) => p.numero === periodo)!;
+      const configPeriodo = periodos.find((p) => p.numero === periodo) || periodos[2];
       const semanaPeriodoAjustada = Math.min(
         configPeriodo.totalSemanasLectivas,
         contadoresPeriodo[periodo]
@@ -495,11 +757,13 @@ function formatearFechaPublicacion(boletin: BoletinSemanal): string {
 
 /**
  * Calcula automáticamente el periodo, número de semana dentro del periodo ("Semana XX de XX"),
- * semana lectiva anual (de las 40 semanas de la Resolución 2026) y los festivos oficiales de la semana.
+ * semana lectiva anual y los festivos oficiales de la semana usando el calendario oficial del boletín.
  */
 export function calcularEstadoCalendarioBoletin(
   boletin: BoletinSemanal
 ): ResumenCalendarioBoletin {
+  const calendario = obtenerCalendarioOficialBoletin(boletin);
+  const anioActivo = calendario.anio || 2026;
   const rangoSemanaFormateado = formatearRangoSemanaSegunMeses(
     boletin.dias,
     boletin.semanaTexto
@@ -508,9 +772,11 @@ export function calcularEstadoCalendarioBoletin(
 
   // Intentamos extraer la fecha del lunes del boletín
   const lunesParsed = boletin.dias.length > 0 ? parsearDiaYMes(boletin.dias[0].fechaTexto) : null;
-  const lunesIso = lunesParsed ? aFechaIso(2026, lunesParsed.mesIndex, lunesParsed.dia) : '2026-11-02';
+  const lunesIso = lunesParsed
+    ? aFechaIso(anioActivo, lunesParsed.mesIndex, lunesParsed.dia)
+    : `${anioActivo}-11-02`;
 
-  // Detectar festivos de Colombia 2026 dentro de los 5 días (lunes a viernes) de la semana activa
+  // Detectar festivos de Colombia dentro de los 5 días (lunes a viernes) de la semana activa
   const [y, m, d] = lunesIso.split('-').map(Number);
   const fechaLunesUtc = new Date(Date.UTC(y, m - 1, d));
   const fechasSemanaIso: string[] = [];
@@ -519,18 +785,22 @@ export function calcularEstadoCalendarioBoletin(
     fechasSemanaIso.push(f.toISOString().slice(0, 10));
   }
 
-  const festivosSemana = FESTIVOS_COLOMBIA_2026.filter((fest) =>
+  const festivosSemana = calendario.festivos.filter((fest) =>
     fechasSemanaIso.includes(fest.fecha)
   );
 
-  // Buscar coincidencia exacta en las 40 semanas lectivas de 2026
-  const semanasLectivas = obtenerSemanasLectivasAnuales2026();
+  // Buscar coincidencia exacta en las semanas lectivas del año activo
+  const semanasLectivas = obtenerSemanasLectivasAnuales2026(calendario);
   const encontrada = semanasLectivas.find((s) => s.lunesIso === lunesIso);
 
+  const periodos =
+    calendario.periodosAcademicos?.length === 3
+      ? calendario.periodosAcademicos
+      : PERIODOS_ACADEMICOS_2026;
+
   if (encontrada) {
-    const configPeriodo = PERIODOS_ACADEMICOS_2026.find(
-      (p) => p.numero === encontrada.periodo
-    )!;
+    const configPeriodo =
+      periodos.find((p) => p.numero === encontrada.periodo) || periodos[2];
     return {
       numeroPeriodo: encontrada.periodo,
       ordinalSup: configPeriodo.ordinalSup,
@@ -549,7 +819,7 @@ export function calcularEstadoCalendarioBoletin(
   }
 
   // Verificar si cae en una semana de Desarrollo Institucional
-  const enDesarrollo = SEMANAS_DESARROLLO_INSTITUCIONAL_2026.find(
+  const enDesarrollo = calendario.semanasDesarrollo.find(
     (b) => lunesIso >= b.desde && lunesIso <= b.hasta
   );
   if (enDesarrollo) {
@@ -557,7 +827,7 @@ export function calcularEstadoCalendarioBoletin(
       numeroPeriodo: 3,
       ordinalSup: 'er',
       nombrePeriodo: 'Desarrollo Institucional',
-      textoRangoPeriodo: 'Este tercer periodo inició el 24 de agosto y termina el 4 de diciembre.',
+      textoRangoPeriodo: `${periodos[2].textoRango.replace(/\.*$/, '')}.`,
       fechaPublicacionFormateada,
       semanaActualPeriodo: 14,
       totalSemanasPeriodo: 14,
@@ -576,7 +846,7 @@ export function calcularEstadoCalendarioBoletin(
     numeroPeriodo: 3,
     ordinalSup: 'er',
     nombrePeriodo: 'Tercer Periodo',
-    textoRangoPeriodo: 'Este tercer periodo inició el 24 de agosto y termina el 4 de diciembre.',
+    textoRangoPeriodo: `${periodos[2].textoRango.replace(/\.*$/, '')}.`,
     fechaPublicacionFormateada,
     semanaActualPeriodo: semanaEstimada,
     totalSemanasPeriodo: 14,
@@ -591,18 +861,20 @@ export function calcularEstadoCalendarioBoletin(
 
 /**
  * Calcula los 5 días (Lunes a Viernes) de la siguiente semana a partir del boletín actual,
- * marcando automáticamente si alguno de los días es festivo oficial en Colombia 2026.
+ * marcando automáticamente si alguno de los días es festivo oficial en el calendario activo.
  */
 export function generarDiasSiguienteSemanaConFestivos(
-  diasActuales: DiaProgramacion[]
+  diasActuales: DiaProgramacion[],
+  calendario: ConfiguracionCalendarioAnual = CALENDARIO_OFICIAL_2026_DEFAULT
 ): {
   diasNuevos: Pick<DiaProgramacion, 'id' | 'fechaTexto' | 'esFestivo' | 'notaHorario'>[];
   semanaTextoNuevo: string;
 } {
+  const anioActivo = calendario.anio || 2026;
   const lunesActual = diasActuales.length > 0 ? parsearDiaYMes(diasActuales[0].fechaTexto) : null;
   const baseDate = lunesActual
-    ? new Date(Date.UTC(2026, lunesActual.mesIndex, lunesActual.dia + 7))
-    : new Date(Date.UTC(2026, 10, 9)); // 9 de noviembre de 2026 por defecto
+    ? new Date(Date.UTC(anioActivo, lunesActual.mesIndex, lunesActual.dia + 7))
+    : new Date(Date.UTC(anioActivo, 10, 9));
 
   const idsDias = ['dia-lunes', 'dia-martes', 'dia-miercoles', 'dia-jueves', 'dia-viernes'];
   const diasNuevos: Pick<DiaProgramacion, 'id' | 'fechaTexto' | 'esFestivo' | 'notaHorario'>[] = [];
@@ -614,7 +886,7 @@ export function generarDiasSiguienteSemanaConFestivos(
     const nombreMes = NOMBRES_MESES[fechaDia.getUTCMonth()];
     const fechaTexto = `${NOMBRES_DIAS_SEMANA[i]} ${numDia} DE ${nombreMes.toUpperCase()}`;
 
-    const festivoOficial = FESTIVOS_COLOMBIA_2026.find((f) => f.fecha === iso);
+    const festivoOficial = calendario.festivos.find((f) => f.fecha === iso);
 
     diasNuevos.push({
       id: idsDias[i] || `dia-${i + 1}`,
@@ -634,11 +906,14 @@ export function generarDiasSiguienteSemanaConFestivos(
 /**
  * Calcula la fecha de emisión por defecto (Viernes) para la siguiente semana.
  */
-export function calcularFechaViernesSiguienteSemana(diasActuales: DiaProgramacion[]): string {
+export function calcularFechaViernesSiguienteSemana(
+  diasActuales: DiaProgramacion[],
+  anioActivo: number = 2026
+): string {
   const lunesActual = diasActuales.length > 0 ? parsearDiaYMes(diasActuales[0].fechaTexto) : null;
   const baseDate = lunesActual
-    ? new Date(Date.UTC(2026, lunesActual.mesIndex, lunesActual.dia + 7))
-    : new Date(Date.UTC(2026, 10, 9));
+    ? new Date(Date.UTC(anioActivo, lunesActual.mesIndex, lunesActual.dia + 7))
+    : new Date(Date.UTC(anioActivo, 10, 9));
   const viernesDate = new Date(baseDate.getTime() + 4 * 86400000);
   const dd = String(viernesDate.getUTCDate()).padStart(2, '0');
   const mm = String(viernesDate.getUTCMonth() + 1).padStart(2, '0');

@@ -25,11 +25,7 @@ import { filtrarDiasBoletin } from '../utils/boletinLogic';
 import { DropdownPersonalizado } from './DropdownPersonalizado';
 import {
   calcularEstadoCalendarioBoletin,
-  FESTIVOS_COLOMBIA_2026,
-  RECESO_ESTUDIANTIL_2026,
-  SEMANAS_DESARROLLO_INSTITUCIONAL_2026,
-  SEMANAS_LECTIVAS_2026,
-  VACACIONES_DOCENTES_2026,
+  obtenerCalendarioOficialBoletin,
 } from '../utils/calendarioEscolar2026';
 
 interface VistaBoletinOficialProps {
@@ -981,197 +977,208 @@ export const VistaBoletinOficial: React.FC<VistaBoletinOficialProps> = ({
         </section>
       </div>
 
-      {/* SECCIÓN 3B: CALENDARIO ACADÉMICO OFICIAL 2026 (ALCALDÍA DE MEDELLÍN) Y FESTIVOS DEL AÑO */}
-      <section
-        aria-label="Calendario Académico Oficial 2026 y Festivos"
-        className="bg-white border border-slate-200 rounded-2xl p-6 sm:p-8 shadow-2xs space-y-6"
-      >
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b-2 border-[#034EA2]/15">
-          <div className="flex items-center gap-2.5">
-            <div className="w-2 h-6 rounded-full bg-[#007DC5]" />
-            <div>
-              <h2 className="text-base sm:text-lg font-display font-extrabold uppercase tracking-tight text-[#034EA2]">
-                Calendario Académico Oficial 2026 (Medellín) y Festivos del Año
-              </h2>
-              <p className="text-xs text-slate-500 font-medium">
-                Resolución Oficial Distrito de Medellín: 40 semanas lectivas, 6 de desarrollo institucional, 7 de vacaciones docentes, 13 de receso estudiantil y 18 festivos
-              </p>
-            </div>
-          </div>
-          <span className="px-3 py-1 rounded-lg bg-sky-50 border border-sky-200 text-xs font-bold text-[#034EA2]">
-            {estadoCalendario.numeroPeriodo}
-            <sup className="text-[9px] font-extrabold lowercase ml-0.5">
-              {estadoCalendario.ordinalSup}
-            </sup>{' '}
-            PERIODO · {estadoCalendario.textoSemanaDePeriodo}
-          </span>
-        </div>
+      {/* SECCIÓN 3B: CALENDARIO ACADÉMICO OFICIAL (ALCALDÍA DE MEDELLÍN) Y FESTIVOS DEL AÑO */}
+      {(() => {
+        const calActivo = obtenerCalendarioOficialBoletin(boletin);
+        const regexAnio = new RegExp(`\\s+de\\s+${calActivo.anio}`, 'gi');
+        const totalLectivas = calActivo.semanasLectivas.reduce((acc, b) => acc + b.semanas, 0);
+        const totalDesarrollo = calActivo.semanasDesarrollo.reduce((acc, b) => acc + b.semanas, 0);
+        const totalVacaciones = calActivo.vacacionesDocentes.reduce((acc, b) => acc + b.semanas, 0);
+        const totalReceso = calActivo.recesoEstudiantil.reduce((acc, b) => acc + b.semanas, 0);
 
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-          {/* Tablas Oficiales Artículos 2, 3, 4 y 5 */}
-          <div className="lg:col-span-7 grid grid-cols-1 sm:grid-cols-2 gap-4">
-            {/* Art. 2: 40 Semanas Lectivas */}
-            <div className="p-4 rounded-xl border border-slate-200 bg-slate-50/60 space-y-2.5">
-              <div className="flex items-center justify-between">
-                <h3 className="text-xs font-display font-extrabold uppercase text-[#034EA2]">
-                  Art. 2 · Semanas Lectivas
-                </h3>
-                <span className="px-2 py-0.5 text-[10px] font-bold rounded bg-[#034EA2] text-white">
-                  40 semanas
-                </span>
+        return (
+          <section
+            aria-label={`Calendario Académico Oficial ${calActivo.anio} y Festivos`}
+            className="bg-white border border-slate-200 rounded-2xl p-6 sm:p-8 shadow-2xs space-y-6"
+          >
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b-2 border-[#034EA2]/15">
+              <div className="flex items-center gap-2.5">
+                <div className="w-2 h-6 rounded-full bg-[#007DC5]" />
+                <div>
+                  <h2 className="text-base sm:text-lg font-display font-extrabold uppercase tracking-tight text-[#034EA2]">
+                    Calendario Académico Oficial {calActivo.anio} (Medellín) y Festivos del Año
+                  </h2>
+                  <p className="text-xs text-slate-500 font-medium">
+                    {calActivo.resolucionTexto}
+                  </p>
+                </div>
               </div>
-              <div className="space-y-1.5 text-xs">
-                {SEMANAS_LECTIVAS_2026.map((b) => (
-                  <div
-                    key={b.id}
-                    className="p-2 rounded-lg bg-white border border-slate-200/80 flex items-center justify-between gap-2"
-                  >
-                    <span className="text-slate-700 font-medium">
-                      {b.desdeTexto.replace(' de 2026', '')} al{' '}
-                      {b.hastaTexto.replace(' de 2026', '')}
-                    </span>
-                    <span className="font-bold text-[#007DC5] shrink-0">
-                      {b.semanas} sem.
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            {/* Art. 3: 6 Semanas Desarrollo Institucional */}
-            <div className="p-4 rounded-xl border border-slate-200 bg-slate-50/60 space-y-2.5">
-              <div className="flex items-center justify-between">
-                <h3 className="text-xs font-display font-extrabold uppercase text-[#034EA2]">
-                  Art. 3 · Desarrollo Inst.
-                </h3>
-                <span className="px-2 py-0.5 text-[10px] font-bold rounded bg-[#007DC5] text-white">
-                  6 semanas
-                </span>
-              </div>
-              <div className="space-y-1.5 text-xs">
-                {SEMANAS_DESARROLLO_INSTITUCIONAL_2026.map((b) => (
-                  <div
-                    key={b.id}
-                    className="p-2 rounded-lg bg-white border border-slate-200/80 flex items-center justify-between gap-2"
-                  >
-                    <span className="text-slate-700 font-medium">
-                      {b.desdeTexto.replace(' de 2026', '')} al{' '}
-                      {b.hastaTexto.replace(' de 2026', '')}
-                    </span>
-                    <span className="font-bold text-[#034EA2] shrink-0">
-                      {b.semanas} sem.
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            {/* Art. 4: 7 Semanas Vacaciones Docentes */}
-            <div className="p-4 rounded-xl border border-slate-200 bg-slate-50/60 space-y-2.5">
-              <div className="flex items-center justify-between">
-                <h3 className="text-xs font-display font-extrabold uppercase text-[#034EA2]">
-                  Art. 4 · Vacaciones Docentes
-                </h3>
-                <span className="px-2 py-0.5 text-[10px] font-bold rounded bg-slate-700 text-white">
-                  7 semanas
-                </span>
-              </div>
-              <div className="space-y-1.5 text-xs">
-                {VACACIONES_DOCENTES_2026.map((b) => (
-                  <div
-                    key={b.id}
-                    className="p-2 rounded-lg bg-white border border-slate-200/80 flex items-center justify-between gap-2"
-                  >
-                    <span className="text-slate-700 font-medium">
-                      {b.desdeTexto.replace(' de 2026', '')} al{' '}
-                      {b.hastaTexto.replace(' de 2026', '')}
-                    </span>
-                    <span className="font-bold text-slate-700 shrink-0">
-                      {b.semanas} sem.
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            {/* Art. 5: 13 Semanas Receso Estudiantil */}
-            <div className="p-4 rounded-xl border border-slate-200 bg-slate-50/60 space-y-2.5">
-              <div className="flex items-center justify-between">
-                <h3 className="text-xs font-display font-extrabold uppercase text-[#034EA2]">
-                  Art. 5 · Receso Estudiantil
-                </h3>
-                <span className="px-2 py-0.5 text-[10px] font-bold rounded bg-emerald-700 text-white">
-                  13 semanas
-                </span>
-              </div>
-              <div className="space-y-1.5 text-xs">
-                {RECESO_ESTUDIANTIL_2026.map((b) => (
-                  <div
-                    key={b.id}
-                    className="p-2 rounded-lg bg-white border border-slate-200/80 flex items-center justify-between gap-2"
-                  >
-                    <span className="text-slate-700 font-medium">
-                      {b.desdeTexto.replace(' de 2026', '')} al{' '}
-                      {b.hastaTexto.replace(' de 2026', '')}
-                    </span>
-                    <span className="font-bold text-emerald-700 shrink-0">
-                      {b.semanas} sem.
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-
-          {/* Festivos Oficiales del Año 2026 (Colombia) */}
-          <div className="lg:col-span-5 p-4 rounded-xl border border-slate-200 bg-slate-50/60 flex flex-col justify-start gap-3">
-            <div className="flex items-center justify-between">
-              <h3 className="text-xs font-display font-extrabold uppercase text-[#034EA2]">
-                Festivos Oficiales de Colombia · Año 2026
-              </h3>
-              <span className="px-2 py-0.5 text-[10px] font-bold rounded bg-[#ED145B] text-white">
-                {FESTIVOS_COLOMBIA_2026.length} festivos
+              <span className="px-3 py-1 rounded-lg bg-sky-50 border border-sky-200 text-xs font-bold text-[#034EA2]">
+                {estadoCalendario.numeroPeriodo}
+                <sup className="text-[9px] font-extrabold lowercase ml-0.5">
+                  {estadoCalendario.ordinalSup}
+                </sup>{' '}
+                PERIODO · {estadoCalendario.textoSemanaDePeriodo}
               </span>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
-              {FESTIVOS_COLOMBIA_2026.map((fest) => {
-                const esDeEstaSemana = estadoCalendario.festivosSemana.some(
-                  (f) => f.fecha === fest.fecha
-                );
-                return (
-                  <div
-                    key={fest.fecha}
-                    className={`p-2 rounded-lg border text-[11px] flex flex-col justify-between ${
-                      esDeEstaSemana
-                        ? 'bg-rose-50 border-[#ED145B] text-[#0F172A]'
-                        : 'bg-white border-slate-200/80 text-slate-700'
-                    }`}
-                  >
-                    <div className="flex items-center justify-between gap-1 font-bold">
-                      <span
-                        className={
-                          esDeEstaSemana ? 'text-[#ED145B]' : 'text-[#034EA2]'
-                        }
-                      >
-                        {fest.diaSemana.slice(0, 3)} {fest.diaMesTexto}
-                      </span>
-                      {esDeEstaSemana && (
-                        <span className="px-1.5 py-0.2 bg-[#ED145B] text-white text-[9px] rounded uppercase">
-                          Esta semana
-                        </span>
-                      )}
-                    </div>
-                    <div className="text-[11px] text-slate-600 truncate">
-                      {fest.nombre}
-                    </div>
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+              {/* Tablas Oficiales Artículos 2, 3, 4 y 5 */}
+              <div className="lg:col-span-7 grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {/* Art. 2: Semanas Lectivas */}
+                <div className="p-4 rounded-xl border border-slate-200 bg-slate-50/60 space-y-2.5">
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-xs font-display font-extrabold uppercase text-[#034EA2]">
+                      Art. 2 · Semanas Lectivas
+                    </h3>
+                    <span className="px-2 py-0.5 text-[10px] font-bold rounded bg-[#034EA2] text-white">
+                      {totalLectivas} semanas
+                    </span>
                   </div>
-                );
-              })}
+                  <div className="space-y-1.5 text-xs">
+                    {calActivo.semanasLectivas.map((b) => (
+                      <div
+                        key={b.id}
+                        className="p-2 rounded-lg bg-white border border-slate-200/80 flex items-center justify-between gap-2"
+                      >
+                        <span className="text-slate-700 font-medium">
+                          {b.desdeTexto.replace(regexAnio, '')} al{' '}
+                          {b.hastaTexto.replace(regexAnio, '')}
+                        </span>
+                        <span className="font-bold text-[#007DC5] shrink-0">
+                          {b.semanas} sem.
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Art. 3: Semanas Desarrollo Institucional */}
+                <div className="p-4 rounded-xl border border-slate-200 bg-slate-50/60 space-y-2.5">
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-xs font-display font-extrabold uppercase text-[#034EA2]">
+                      Art. 3 · Desarrollo Inst.
+                    </h3>
+                    <span className="px-2 py-0.5 text-[10px] font-bold rounded bg-[#007DC5] text-white">
+                      {totalDesarrollo} semanas
+                    </span>
+                  </div>
+                  <div className="space-y-1.5 text-xs">
+                    {calActivo.semanasDesarrollo.map((b) => (
+                      <div
+                        key={b.id}
+                        className="p-2 rounded-lg bg-white border border-slate-200/80 flex items-center justify-between gap-2"
+                      >
+                        <span className="text-slate-700 font-medium">
+                          {b.desdeTexto.replace(regexAnio, '')} al{' '}
+                          {b.hastaTexto.replace(regexAnio, '')}
+                        </span>
+                        <span className="font-bold text-[#034EA2] shrink-0">
+                          {b.semanas} sem.
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Art. 4: Vacaciones Docentes */}
+                <div className="p-4 rounded-xl border border-slate-200 bg-slate-50/60 space-y-2.5">
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-xs font-display font-extrabold uppercase text-[#034EA2]">
+                      Art. 4 · Vacaciones Docentes
+                    </h3>
+                    <span className="px-2 py-0.5 text-[10px] font-bold rounded bg-slate-700 text-white">
+                      {totalVacaciones} semanas
+                    </span>
+                  </div>
+                  <div className="space-y-1.5 text-xs">
+                    {calActivo.vacacionesDocentes.map((b) => (
+                      <div
+                        key={b.id}
+                        className="p-2 rounded-lg bg-white border border-slate-200/80 flex items-center justify-between gap-2"
+                      >
+                        <span className="text-slate-700 font-medium">
+                          {b.desdeTexto.replace(regexAnio, '')} al{' '}
+                          {b.hastaTexto.replace(regexAnio, '')}
+                        </span>
+                        <span className="font-bold text-slate-700 shrink-0">
+                          {b.semanas} sem.
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Art. 5: Receso Estudiantil */}
+                <div className="p-4 rounded-xl border border-slate-200 bg-slate-50/60 space-y-2.5">
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-xs font-display font-extrabold uppercase text-[#034EA2]">
+                      Art. 5 · Receso Estudiantil
+                    </h3>
+                    <span className="px-2 py-0.5 text-[10px] font-bold rounded bg-emerald-700 text-white">
+                      {totalReceso} semanas
+                    </span>
+                  </div>
+                  <div className="space-y-1.5 text-xs">
+                    {calActivo.recesoEstudiantil.map((b) => (
+                      <div
+                        key={b.id}
+                        className="p-2 rounded-lg bg-white border border-slate-200/80 flex items-center justify-between gap-2"
+                      >
+                        <span className="text-slate-700 font-medium">
+                          {b.desdeTexto.replace(regexAnio, '')} al{' '}
+                          {b.hastaTexto.replace(regexAnio, '')}
+                        </span>
+                        <span className="font-bold text-emerald-700 shrink-0">
+                          {b.semanas} sem.
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              {/* Festivos Oficiales del Año (Colombia) */}
+              <div className="lg:col-span-5 p-4 rounded-xl border border-slate-200 bg-slate-50/60 flex flex-col justify-start gap-3">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-xs font-display font-extrabold uppercase text-[#034EA2]">
+                    Festivos Oficiales de Colombia · Año {calActivo.anio}
+                  </h3>
+                  <span className="px-2 py-0.5 text-[10px] font-bold rounded bg-[#ED145B] text-white">
+                    {calActivo.festivos.length} festivos
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                  {calActivo.festivos.map((fest) => {
+                    const esDeEstaSemana = estadoCalendario.festivosSemana.some(
+                      (f) => f.fecha === fest.fecha
+                    );
+                    return (
+                      <div
+                        key={fest.fecha}
+                        className={`p-2 rounded-lg border text-[11px] flex flex-col justify-between ${
+                          esDeEstaSemana
+                            ? 'bg-rose-50 border-[#ED145B] text-[#0F172A]'
+                            : 'bg-white border-slate-200/80 text-slate-700'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between gap-1 font-bold">
+                          <span
+                            className={
+                              esDeEstaSemana ? 'text-[#ED145B]' : 'text-[#034EA2]'
+                            }
+                          >
+                            {fest.diaSemana.slice(0, 3)} {fest.diaMesTexto}
+                          </span>
+                          {esDeEstaSemana && (
+                            <span className="px-1.5 py-0.2 bg-[#ED145B] text-white text-[9px] rounded uppercase">
+                              Esta semana
+                            </span>
+                          )}
+                        </div>
+                        <div className="text-[11px] text-slate-600 truncate">
+                          {fest.nombre}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
             </div>
-          </div>
-        </div>
-      </section>
+          </section>
+        );
+      })()}
 
       {/* SECCIÓN 4: BANNER CORPORATIVO NOTI-PRÁCTICAS, FELICITACIONES Y CONVIVENCIA */}
       <section

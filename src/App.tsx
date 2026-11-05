@@ -1011,6 +1011,7 @@ export default function App() {
               key={seccionEditorInicial}
               boletin={boletin}
               usuarioActual={usuarioDirectivo}
+              tokenSesion={tokenSesion}
               presencia={presencia}
               wsConectado={wsConectado}
               notificacionEditor={notificacionEditor}

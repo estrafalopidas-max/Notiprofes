@@ -11,6 +11,8 @@ import {
 import {
   calcularEstadoCalendarioBoletin,
   formatearRangoSemanaSegunMeses,
+  generarFestivosColombiaAnio,
+  generarPlantillaCalendarioAnual,
   SEMANAS_LECTIVAS_2026,
 } from './calendarioEscolar2026';
 
@@ -157,4 +159,38 @@ test('generarHtmlPublicoBoletin produce HTML válido con logo y paleta corporati
   assert.ok(html.includes('NOTI PRÁCTICAS'));
   assert.ok(html.includes('CARLOS ALBERTO MAZO LOAIZA'));
   assert.ok(html.includes('Se reprograma para el martes'));
+});
+
+test('generarPlantillaCalendarioAnual y actualizar_calendario_anual activan el calendario 2027 con sus 18 festivos oficiales', () => {
+  const festivos2027 = generarFestivosColombiaAnio(2027);
+  assert.equal(festivos2027.length, 18);
+  assert.equal(festivos2027[0].fecha, '2027-01-01');
+
+  const plantilla2027 = generarPlantillaCalendarioAnual(2027);
+  assert.equal(plantilla2027.anio, 2027);
+  assert.equal(
+    plantilla2027.semanasLectivas.reduce((acc, b) => acc + b.semanas, 0),
+    40
+  );
+  assert.equal(
+    plantilla2027.semanasDesarrollo.reduce((acc, b) => acc + b.semanas, 0),
+    6
+  );
+  assert.equal(
+    plantilla2027.vacacionesDocentes.reduce((acc, b) => acc + b.semanas, 0),
+    7
+  );
+  assert.equal(
+    plantilla2027.recesoEstudiantil.reduce((acc, b) => acc + b.semanas, 0),
+    13
+  );
+
+  const boletinCon2027 = aplicarOperacionBoletin(BOLETIN_40_SEED, {
+    tipo: 'actualizar_calendario_anual',
+    calendario: plantilla2027,
+    autor: 'Carlos Alberto Mazo Loaiza',
+  });
+  assert.equal(boletinCon2027.calendarioOficial?.anio, 2027);
+  const html2027 = generarHtmlPublicoBoletin(boletinCon2027);
+  assert.ok(html2027.includes('Calendario Académico Oficial 2027 (Medellín)'));
 });

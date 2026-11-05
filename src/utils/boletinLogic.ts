@@ -6,13 +6,9 @@ import {
 } from '../types/notiprofes';
 import {
   calcularEstadoCalendarioBoletin,
-  FESTIVOS_COLOMBIA_2026,
   formatearRangoSemanaSegunMeses,
   generarDiasSiguienteSemanaConFestivos,
-  RECESO_ESTUDIANTIL_2026,
-  SEMANAS_DESARROLLO_INSTITUCIONAL_2026,
-  SEMANAS_LECTIVAS_2026,
-  VACACIONES_DOCENTES_2026,
+  obtenerCalendarioOficialBoletin,
 } from './calendarioEscolar2026';
 
 export interface CriteriosFiltroBoletin {
@@ -297,6 +293,18 @@ export function aplicarOperacionBoletin(
       };
       break;
     }
+
+    case 'actualizar_calendario_anual': {
+      boletinModificado = {
+        ...baseActualizada,
+        calendarioOficial: {
+          ...op.calendario,
+          actualizadoEn: timestampIso,
+          actualizadoPor: op.autor,
+        },
+      };
+      break;
+    }
   }
 
   const nowStr = new Date().toLocaleString('es-CO', {
@@ -397,6 +405,11 @@ export function aplicarOperacionBoletin(
       accion = 'Actualizar Póliza Escolar';
       descripcion = `Se actualizó la póliza escolar oficial: "${op.poliza.titulo}".`;
       break;
+    case 'actualizar_calendario_anual':
+      seccion = 'Calendario Académico Oficial';
+      accion = `Activar Calendario ${op.calendario.anio}`;
+      descripcion = `Se actualizó y activó el Calendario Académico Oficial del año ${op.calendario.anio} (${op.calendario.resolucionTexto}).`;
+      break;
   }
 
   const nuevoRegistro = {
@@ -430,8 +443,10 @@ export function clonarBoletinSiguienteSemana(
   }
 ): BoletinSemanal {
   const nuevoNumero = actual.numero + 1;
+  const calendarioActivo = obtenerCalendarioOficialBoletin(actual);
   const { diasNuevos, semanaTextoNuevo } = generarDiasSiguienteSemanaConFestivos(
-    actual.dias
+    actual.dias,
+    calendarioActivo
   );
   const textoSemanaFinal = datosNuevaSemana.semanaTexto?.trim()
     ? formatearRangoSemanaSegunMeses([], datosNuevaSemana.semanaTexto)
@@ -439,7 +454,7 @@ export function clonarBoletinSiguienteSemana(
 
   return {
     ...actual,
-    id: `notiprofes-2026-${nuevoNumero}`,
+    id: `notiprofes-${calendarioActivo.anio}-${nuevoNumero}`,
     numero: nuevoNumero,
     fechaEmision: datosNuevaSemana.fechaEmision,
     semanaTexto: textoSemanaFinal,
@@ -692,24 +707,26 @@ export function generarHtmlPublicoBoletin(boletin: BoletinSemanal): string {
     (e) => e.categoria !== 'finalizacion'
   );
   const estadoCalendario = calcularEstadoCalendarioBoletin(boletin);
+  const calendarioActivo = obtenerCalendarioOficialBoletin(boletin);
+  const regexAnioLimpiar = new RegExp(`\\s+de\\s+${calendarioActivo.anio}`, 'gi');
 
   const renderBloquesCalendarioHtml = (
-    bloques: typeof SEMANAS_LECTIVAS_2026,
+    bloques: typeof calendarioActivo.semanasLectivas,
     colorTexto: string
   ) =>
     bloques
       .map(
         (b) => `
         <div class="cal-item">
-          <span>${escaparHtml(b.desdeTexto.replace(' de 2026', ''))} al ${escaparHtml(
-            b.hastaTexto.replace(' de 2026', '')
+          <span>${escaparHtml(b.desdeTexto.replace(regexAnioLimpiar, ''))} al ${escaparHtml(
+            b.hastaTexto.replace(regexAnioLimpiar, '')
           )}</span>
           <strong style="color: ${colorTexto}; flex-shrink: 0;">${b.semanas} sem.</strong>
         </div>`
       )
       .join('');
 
-  const festivosGridHtml = FESTIVOS_COLOMBIA_2026.map((fest) => {
+  const festivosGridHtml = calendarioActivo.festivos.map((fest) => {
     const esDeEstaSemana = estadoCalendario.festivosSemana.some(
       (f) => f.fecha === fest.fecha
     );
@@ -1771,8 +1788,8 @@ export function generarHtmlPublicoBoletin(boletin: BoletinSemanal): string {
           <div class="cal-summary-left">
             <div class="cal-bar-accent"></div>
             <div>
-              <h3 class="subtitulo-seccion" style="margin: 0;">Calendario Académico Oficial 2026 (Medellín) y Festivos del Año</h3>
-              <div class="cal-summary-sub">Resolución Oficial Distrito de Medellín: 40 semanas lectivas, 6 de desarrollo institucional, 7 de vacaciones docentes, 13 de receso estudiantil y 18 festivos</div>
+              <h3 class="subtitulo-seccion" style="margin: 0;">Calendario Académico Oficial ${calendarioActivo.anio} (Medellín) y Festivos del Año</h3>
+              <div class="cal-summary-sub">${escaparHtml(calendarioActivo.resolucionTexto)}</div>
             </div>
           </div>
           <div class="cal-summary-right">
@@ -1790,40 +1807,40 @@ export function generarHtmlPublicoBoletin(boletin: BoletinSemanal): string {
             <div class="cal-box">
               <div class="cal-box-head">
                 <h4 class="cal-box-title">Art. 2 · Semanas Lectivas</h4>
-                <span class="cal-badge" style="background: #034EA2;">40 semanas</span>
+                <span class="cal-badge" style="background: #034EA2;">${calendarioActivo.semanasLectivas.reduce((acc, b) => acc + b.semanas, 0)} semanas</span>
               </div>
-              ${renderBloquesCalendarioHtml(SEMANAS_LECTIVAS_2026, '#007DC5')}
+              ${renderBloquesCalendarioHtml(calendarioActivo.semanasLectivas, '#007DC5')}
             </div>
 
             <div class="cal-box">
               <div class="cal-box-head">
                 <h4 class="cal-box-title">Art. 3 · Desarrollo Inst.</h4>
-                <span class="cal-badge" style="background: #007DC5;">6 semanas</span>
+                <span class="cal-badge" style="background: #007DC5;">${calendarioActivo.semanasDesarrollo.reduce((acc, b) => acc + b.semanas, 0)} semanas</span>
               </div>
-              ${renderBloquesCalendarioHtml(SEMANAS_DESARROLLO_INSTITUCIONAL_2026, '#034EA2')}
+              ${renderBloquesCalendarioHtml(calendarioActivo.semanasDesarrollo, '#034EA2')}
             </div>
 
             <div class="cal-box">
               <div class="cal-box-head">
                 <h4 class="cal-box-title">Art. 4 · Vacaciones Docentes</h4>
-                <span class="cal-badge" style="background: #334155;">7 semanas</span>
+                <span class="cal-badge" style="background: #334155;">${calendarioActivo.vacacionesDocentes.reduce((acc, b) => acc + b.semanas, 0)} semanas</span>
               </div>
-              ${renderBloquesCalendarioHtml(VACACIONES_DOCENTES_2026, '#334155')}
+              ${renderBloquesCalendarioHtml(calendarioActivo.vacacionesDocentes, '#334155')}
             </div>
 
             <div class="cal-box">
               <div class="cal-box-head">
                 <h4 class="cal-box-title">Art. 5 · Receso Estudiantil</h4>
-                <span class="cal-badge" style="background: #047857;">13 semanas</span>
+                <span class="cal-badge" style="background: #047857;">${calendarioActivo.recesoEstudiantil.reduce((acc, b) => acc + b.semanas, 0)} semanas</span>
               </div>
-              ${renderBloquesCalendarioHtml(RECESO_ESTUDIANTIL_2026, '#047857')}
+              ${renderBloquesCalendarioHtml(calendarioActivo.recesoEstudiantil, '#047857')}
             </div>
           </div>
 
           <div class="cal-box">
             <div class="cal-box-head">
-              <h4 class="cal-box-title">Festivos Oficiales de Colombia · Año 2026</h4>
-              <span class="cal-badge" style="background: #ED145B;">${FESTIVOS_COLOMBIA_2026.length} festivos</span>
+              <h4 class="cal-box-title">Festivos Oficiales de Colombia · Año ${calendarioActivo.anio}</h4>
+              <span class="cal-badge" style="background: #ED145B;">${calendarioActivo.festivos.length} festivos</span>
             </div>
             <div class="festivos-grid">
               ${festivosGridHtml}

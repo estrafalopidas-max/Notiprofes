@@ -19,12 +19,15 @@ import {
   RotateCcw,
   Sparkles,
   Trash2,
+  Upload,
   UserCheck,
   Users,
   X,
 } from 'lucide-react';
 import {
+  BloqueCalendarioOficial,
   BoletinSemanal,
+  ConfiguracionCalendarioAnual,
   DocumentoInstitucional,
   HorarioPersonalApoyo,
   OperacionBoletin,
@@ -32,12 +35,17 @@ import {
   UsuarioDirectivo,
 } from '../types/notiprofes';
 import { validarActividadInput } from '../utils/boletinLogic';
-import { calcularFechaViernesSiguienteSemana } from '../utils/calendarioEscolar2026';
+import {
+  calcularFechaViernesSiguienteSemana,
+  formatearFechaIsoATextoLargo,
+  obtenerCalendarioOficialBoletin,
+} from '../utils/calendarioEscolar2026';
 import { DropdownPersonalizado } from './DropdownPersonalizado';
 
 interface PanelEditorColaborativoProps {
   boletin: BoletinSemanal;
   usuarioActual: UsuarioDirectivo | null;
+  tokenSesion?: string | null;
   presencia: PresenciaActiva[];
   wsConectado: boolean;
   notificacionEditor?: {
@@ -71,6 +79,7 @@ export type SeccionEditor =
 export const PanelEditorColaborativo: React.FC<PanelEditorColaborativoProps> = ({
   boletin,
   usuarioActual,
+  tokenSesion,
   presencia,
   wsConectado,
   notificacionEditor,
@@ -149,6 +158,20 @@ export const PanelEditorColaborativo: React.FC<PanelEditorColaborativoProps> = (
 
   const [diasColapsados, setDiasColapsados] = useState<Record<string, boolean>>({});
   const [filtroDiaEditor, setFiltroDiaEditor] = useState<string>('todos');
+
+  // Estados para importación de Decreto de Calendario Académico (2027+)
+  const calendarioVigente = obtenerCalendarioOficialBoletin(boletin);
+  const [anioDecreto, setAnioDecreto] = useState<number>(2027);
+  const [archivoDecretoNombre, setArchivoDecretoNombre] = useState<string>('');
+  const [archivoDecretoBase64, setArchivoDecretoBase64] = useState<string>('');
+  const [archivoDecretoMime, setArchivoDecretoMime] = useState<string>('application/pdf');
+  const [textoDecretoOpcional, setTextoDecretoOpcional] = useState<string>('');
+  const [analizandoDecreto, setAnalizandoDecreto] = useState<boolean>(false);
+  const [borradorCalendarioAnual, setBorradorCalendarioAnual] =
+    useState<ConfiguracionCalendarioAnual | null>(null);
+  const [origenBorrador, setOrigenBorrador] = useState<'ia_gemini' | 'algoritmico' | null>(
+    null
+  );
 
   const notificarGuardado = (texto: string) => {
     setMensajeEstado(texto);
@@ -391,6 +414,170 @@ export const PanelEditorColaborativo: React.FC<PanelEditorColaborativoProps> = (
       setDescEventoLP('');
       setDestacadoLP(false);
       notificarGuardado('Actividad a largo plazo incorporada al calendario.');
+    }
+  };
+
+  const handleSeleccionarArchivoDecreto = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setErrorValidacion(null);
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (file.size > 10 * 1024 * 1024) {
+      setErrorValidacion('El archivo PDF no debe superar los 10 MB.');
+      return;
+    }
+
+    setArchivoDecretoNombre(file.name);
+    setArchivoDecretoMime(file.type || 'application/pdf');
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result === 'string') {
+        setArchivoDecretoBase64(reader.result);
+      }
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleAnalizarDecretoConIA = async () => {
+    setErrorValidacion(null);
+    if (!usuarioActual || !tokenSesion) {
+      onSolicitarLogin();
+      return;
+    }
+    if (!archivoDecretoBase64 && textoDecretoOpcional.trim().length < 20) {
+      setErrorValidacion(
+        'Seleccione el archivo PDF de la Resolución del Calendario Académico o pegue el texto de los artículos antes de analizar.'
+      );
+      return;
+    }
+
+    setAnalizandoDecreto(true);
+    try {
+      const resp = await fetch('/api/calendario/analizar-decreto', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${tokenSesion}`,
+        },
+        body: JSON.stringify({
+          pdfBase64: archivoDecretoBase64 || undefined,
+          mimeType: archivoDecretoMime,
+          textoResolucion: textoDecretoOpcional || undefined,
+          anioObjetivo: anioDecreto,
+        }),
+      });
+      const data = await resp.json();
+      if (!resp.ok) {
+        setErrorValidacion(data.error || 'Error al analizar el decreto con IA.');
+        return;
+      }
+      setBorradorCalendarioAnual(data.calendario);
+      setOrigenBorrador('ia_gemini');
+      notificarGuardado(
+        `Decreto analizado con éxito. Revise la vista previa del año ${data.calendario.anio} antes de activarlo.`
+      );
+    } catch {
+      setErrorValidacion('Error de conexión con el servidor al procesar el decreto.');
+    } finally {
+      setAnalizandoDecreto(false);
+    }
+  };
+
+  const handleGenerarPlantillaAnual = async () => {
+    setErrorValidacion(null);
+    if (!usuarioActual || !tokenSesion) {
+      onSolicitarLogin();
+      return;
+    }
+    setAnalizandoDecreto(true);
+    try {
+      const resp = await fetch('/api/calendario/generar-plantilla-anual', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${tokenSesion}`,
+        },
+        body: JSON.stringify({ anio: anioDecreto }),
+      });
+      const data = await resp.json();
+      if (!resp.ok) {
+        setErrorValidacion(data.error || 'No fue posible generar la plantilla anual.');
+        return;
+      }
+      setBorradorCalendarioAnual(data.calendario);
+      setOrigenBorrador('algoritmico');
+      notificarGuardado(
+        `Plantilla base y 18 festivos oficiales de Colombia generados para el año ${data.calendario.anio}.`
+      );
+    } catch {
+      setErrorValidacion('Error de red al solicitar la plantilla anual.');
+    } finally {
+      setAnalizandoDecreto(false);
+    }
+  };
+
+  const handleActualizarBloqueBorrador = (
+    seccionBloque:
+      | 'semanasLectivas'
+      | 'semanasDesarrollo'
+      | 'vacacionesDocentes'
+      | 'recesoEstudiantil',
+    idBloque: string,
+    campo: 'desde' | 'hasta' | 'semanas',
+    valor: string | number
+  ) => {
+    if (!borradorCalendarioAnual) return;
+    const listaActualizada: BloqueCalendarioOficial[] = borradorCalendarioAnual[
+      seccionBloque
+    ].map((b) => {
+      if (b.id !== idBloque) return b;
+      if (campo === 'semanas') {
+        const sem = Math.max(1, Number(valor) || 1);
+        return { ...b, semanas: sem, duracionTexto: `${sem} semana(s)` };
+      }
+      if (campo === 'desde') {
+        const iso = String(valor);
+        return {
+          ...b,
+          desde: iso,
+          desdeTexto: formatearFechaIsoATextoLargo(iso),
+        };
+      }
+      const iso = String(valor);
+      return {
+        ...b,
+        hasta: iso,
+        hastaTexto: formatearFechaIsoATextoLargo(iso),
+      };
+    });
+
+    setBorradorCalendarioAnual({
+      ...borradorCalendarioAnual,
+      [seccionBloque]: listaActualizada,
+    });
+  };
+
+  const handleAprobarCalendarioAnual = async () => {
+    if (!usuarioActual) {
+      onSolicitarLogin();
+      return;
+    }
+    if (!borradorCalendarioAnual) return;
+
+    const ok = await onEjecutarOperacion({
+      tipo: 'actualizar_calendario_anual',
+      calendario: borradorCalendarioAnual,
+      autor: usuarioActual.nombre,
+    });
+    if (ok) {
+      setBorradorCalendarioAnual(null);
+      setArchivoDecretoNombre('');
+      setArchivoDecretoBase64('');
+      setTextoDecretoOpcional('');
+      notificarGuardado(
+        `¡Calendario Académico Oficial ${borradorCalendarioAnual.anio} activado y publicado en el boletín!`
+      );
     }
   };
 
@@ -1308,9 +1495,348 @@ export const PanelEditorColaborativo: React.FC<PanelEditorColaborativoProps> = (
         </div>
       )}
 
-      {/* SECCIÓN 3: ACTIVIDADES A LARGO PLAZO */}
+      {/* SECCIÓN 3: ACTIVIDADES A LARGO PLAZO Y DECRETO DE CALENDARIO ACADÉMICO */}
       {seccion === 'largo_plazo' && (
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+        <div className="space-y-6">
+          {/* IMPORTADOR INTELIGENTE DE DECRETO DE CALENDARIO ACADÉMICO (2027+) */}
+          <div className="bg-white border border-slate-200/90 rounded-2xl overflow-hidden shadow-2xs">
+            <div className="bg-gradient-to-r from-[#0F223D] via-[#034EA2] to-[#007DC5] px-6 py-4 text-white flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-white/15 border border-white/20 flex items-center justify-center shrink-0">
+                  <Sparkles className="w-5 h-5 text-amber-300" />
+                </div>
+                <div>
+                  <h2 className="text-base font-display font-extrabold tracking-tight">
+                    Importador de Decreto de Calendario Académico (2027+)
+                  </h2>
+                  <p className="text-xs text-sky-100">
+                    Suba el PDF de la Resolución de la Secretaría de Educación para extraer con IA las 40 semanas lectivas, desarrollo institucional, vacaciones, recesos y los 18 festivos de Colombia.
+                  </p>
+                </div>
+              </div>
+              <div className="px-3 py-1.5 rounded-lg bg-white/15 border border-white/25 text-xs font-bold whitespace-nowrap self-start sm:self-auto">
+                Calendario Activo: Año {calendarioVigente.anio}
+              </div>
+            </div>
+
+            <div className="p-6 space-y-5">
+              <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
+                {/* Columna 1: Año objetivo y archivo PDF */}
+                <div className="lg:col-span-5 space-y-4">
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label
+                        htmlFor="input-anio-decreto"
+                        className="block text-xs font-semibold text-slate-700 mb-1"
+                      >
+                        Año Escolar Objetivo:
+                      </label>
+                      <input
+                        id="input-anio-decreto"
+                        type="number"
+                        min={2026}
+                        max={2035}
+                        value={anioDecreto}
+                        onChange={(e) => setAnioDecreto(Number(e.target.value) || 2027)}
+                        className="w-full rounded-lg border border-slate-300 bg-slate-50 px-3 py-2 text-sm font-bold text-[#034EA2]"
+                      />
+                    </div>
+                    <div className="flex flex-col justify-end">
+                      <button
+                        type="button"
+                        disabled={analizandoDecreto}
+                        onClick={handleGenerarPlantillaAnual}
+                        className="w-full py-2 px-3 text-xs font-bold text-[#034EA2] bg-sky-50 hover:bg-sky-100 border border-sky-200 rounded-lg transition-colors cursor-pointer disabled:opacity-50"
+                      >
+                        Generar Plantilla {anioDecreto} (Sin IA)
+                      </button>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                      1. Subir PDF de la Resolución Oficial (Alcaldía de Medellín):
+                    </label>
+                    <label
+                      htmlFor="file-decreto-pdf"
+                      className="flex flex-col items-center justify-center gap-2 border-2 border-dashed border-sky-300 hover:border-[#007DC5] bg-sky-50/50 hover:bg-sky-50 rounded-xl p-4 text-center cursor-pointer transition-colors"
+                    >
+                      <Upload className="w-5 h-5 text-[#007DC5]" />
+                      <div className="text-xs font-bold text-[#034EA2]">
+                        {archivoDecretoNombre
+                          ? `Archivo cargado: ${archivoDecretoNombre}`
+                          : 'Seleccionar archivo PDF de la Resolución (.pdf)'}
+                      </div>
+                      <span className="text-[11px] text-slate-500">
+                        Procesamiento multimodal directo en el servidor (máx. 10 MB)
+                      </span>
+                      <input
+                        id="file-decreto-pdf"
+                        type="file"
+                        accept=".pdf,application/pdf,.txt,text/plain"
+                        onChange={handleSeleccionarArchivoDecreto}
+                        className="hidden"
+                      />
+                    </label>
+                  </div>
+                </div>
+
+                {/* Columna 2: Texto opcional y botón de extracción con IA */}
+                <div className="lg:col-span-7 space-y-3">
+                  <div>
+                    <label
+                      htmlFor="texto-decreto-opcional"
+                      className="block text-xs font-semibold text-slate-700 mb-1"
+                    >
+                      2. Opcional: Pegar texto de los artículos del decreto (Art. 2 al 5):
+                    </label>
+                    <textarea
+                      id="texto-decreto-opcional"
+                      rows={4}
+                      value={textoDecretoOpcional}
+                      onChange={(e) => setTextoDecretoOpcional(e.target.value)}
+                      placeholder="También puede copiar y pegar aquí el texto de las semanas lectivas, desarrollo institucional, vacaciones docentes y receso estudiantil de la resolución..."
+                      className="w-full rounded-lg border border-slate-300 bg-slate-50 px-3 py-2 text-xs text-slate-900"
+                    />
+                  </div>
+
+                  <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
+                    <span className="text-[11px] text-slate-500">
+                      Los 18 festivos oficiales de Colombia del año {anioDecreto} se calculan automáticamente por Ley Emiliani.
+                    </span>
+                    <button
+                      type="button"
+                      disabled={analizandoDecreto}
+                      onClick={handleAnalizarDecretoConIA}
+                      className="py-2.5 px-5 text-xs font-bold text-white bg-[#007DC5] hover:bg-[#034EA2] rounded-lg shadow-xs transition-colors inline-flex items-center gap-2 cursor-pointer disabled:opacity-60"
+                    >
+                      <Sparkles className="w-4 h-4" />
+                      {analizandoDecreto
+                        ? 'Analizando Decreto...'
+                        : `Extraer Calendario ${anioDecreto} con IA`}
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* VISTA PREVIA Y CONFIRMACIÓN HUMANA DEL DECRETO EXTRAÍDO */}
+              {borradorCalendarioAnual && (
+                <div className="mt-4 pt-5 border-t-2 border-sky-100 space-y-4 bg-slate-50/70 p-4 sm:p-5 rounded-xl border border-sky-200">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="px-2.5 py-0.5 rounded-full text-[10px] font-extrabold uppercase bg-emerald-100 text-emerald-800 border border-emerald-300">
+                          {origenBorrador === 'ia_gemini'
+                            ? 'Extraído con IA Gemini'
+                            : 'Plantilla Algorítmica'}
+                        </span>
+                        <h3 className="text-sm font-display font-extrabold text-[#034EA2]">
+                          Vista Previa y Validación · Calendario Académico {borradorCalendarioAnual.anio}
+                        </h3>
+                      </div>
+                      <p className="text-xs text-slate-600 mt-0.5">
+                        Verifique o ajuste cualquier fecha antes de activar el calendario en el boletín.
+                      </p>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setBorradorCalendarioAnual(null)}
+                        className="px-3 py-2 text-xs font-semibold text-slate-600 bg-white border border-slate-300 rounded-lg hover:bg-slate-100 cursor-pointer"
+                      >
+                        Descartar Borrador
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleAprobarCalendarioAnual}
+                        className="px-4 py-2 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg shadow-xs inline-flex items-center gap-1.5 cursor-pointer"
+                      >
+                        <Check className="w-4 h-4" />
+                        Aprobar y Activar Calendario {borradorCalendarioAnual.anio}
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Título de resolución editable */}
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                      Descripción Oficial de la Resolución:
+                    </label>
+                    <input
+                      type="text"
+                      value={borradorCalendarioAnual.resolucionTexto}
+                      onChange={(e) =>
+                        setBorradorCalendarioAnual({
+                          ...borradorCalendarioAnual,
+                          resolucionTexto: e.target.value,
+                        })
+                      }
+                      className="w-full rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-800"
+                    />
+                  </div>
+
+                  {/* Indicadores de validación de conteo de semanas */}
+                  {(() => {
+                    const sumLectivas = borradorCalendarioAnual.semanasLectivas.reduce(
+                      (a, b) => a + b.semanas,
+                      0
+                    );
+                    const sumDesarrollo = borradorCalendarioAnual.semanasDesarrollo.reduce(
+                      (a, b) => a + b.semanas,
+                      0
+                    );
+                    const sumVacaciones = borradorCalendarioAnual.vacacionesDocentes.reduce(
+                      (a, b) => a + b.semanas,
+                      0
+                    );
+                    const sumReceso = borradorCalendarioAnual.recesoEstudiantil.reduce(
+                      (a, b) => a + b.semanas,
+                      0
+                    );
+
+                    return (
+                      <div className="grid grid-cols-2 sm:grid-cols-5 gap-2.5 text-xs">
+                        <div className="p-2.5 rounded-lg bg-white border border-slate-200 flex items-center justify-between">
+                          <span className="font-semibold text-slate-600">Art. 2 Lectivas:</span>
+                          <span
+                            className={`font-extrabold ${
+                              sumLectivas === 40 ? 'text-emerald-700' : 'text-amber-700'
+                            }`}
+                          >
+                            {sumLectivas}/40 sem.
+                          </span>
+                        </div>
+                        <div className="p-2.5 rounded-lg bg-white border border-slate-200 flex items-center justify-between">
+                          <span className="font-semibold text-slate-600">Art. 3 Desarr.:</span>
+                          <span
+                            className={`font-extrabold ${
+                              sumDesarrollo === 6 ? 'text-emerald-700' : 'text-amber-700'
+                            }`}
+                          >
+                            {sumDesarrollo}/6 sem.
+                          </span>
+                        </div>
+                        <div className="p-2.5 rounded-lg bg-white border border-slate-200 flex items-center justify-between">
+                          <span className="font-semibold text-slate-600">Art. 4 Vacac.:</span>
+                          <span
+                            className={`font-extrabold ${
+                              sumVacaciones === 7 ? 'text-emerald-700' : 'text-amber-700'
+                            }`}
+                          >
+                            {sumVacaciones}/7 sem.
+                          </span>
+                        </div>
+                        <div className="p-2.5 rounded-lg bg-white border border-slate-200 flex items-center justify-between">
+                          <span className="font-semibold text-slate-600">Art. 5 Receso:</span>
+                          <span
+                            className={`font-extrabold ${
+                              sumReceso === 13 ? 'text-emerald-700' : 'text-amber-700'
+                            }`}
+                          >
+                            {sumReceso}/13 sem.
+                          </span>
+                        </div>
+                        <div className="p-2.5 rounded-lg bg-white border border-slate-200 flex items-center justify-between col-span-2 sm:col-span-1">
+                          <span className="font-semibold text-slate-600">Festivos Col.:</span>
+                          <span className="font-extrabold text-[#ED145B]">
+                            {borradorCalendarioAnual.festivos.length} días
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  })()}
+
+                  {/* Bloques editables por artículo */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {(
+                      [
+                        {
+                          key: 'semanasLectivas',
+                          titulo: 'Art. 2 · Semanas Lectivas (Estudiantes)',
+                        },
+                        {
+                          key: 'semanasDesarrollo',
+                          titulo: 'Art. 3 · Desarrollo Institucional',
+                        },
+                        {
+                          key: 'vacacionesDocentes',
+                          titulo: 'Art. 4 · Vacaciones Docentes',
+                        },
+                        {
+                          key: 'recesoEstudiantil',
+                          titulo: 'Art. 5 · Receso Estudiantil',
+                        },
+                      ] as const
+                    ).map((grupo) => (
+                      <div
+                        key={grupo.key}
+                        className="bg-white border border-slate-200 rounded-xl p-3.5 space-y-2"
+                      >
+                        <h4 className="text-xs font-display font-bold text-[#034EA2] uppercase">
+                          {grupo.titulo}
+                        </h4>
+                        <div className="space-y-1.5">
+                          {borradorCalendarioAnual[grupo.key].map((b) => (
+                            <div
+                              key={b.id}
+                              className="grid grid-cols-12 gap-1.5 items-center text-[11px]"
+                            >
+                              <input
+                                type="date"
+                                value={b.desde}
+                                onChange={(e) =>
+                                  handleActualizarBloqueBorrador(
+                                    grupo.key,
+                                    b.id,
+                                    'desde',
+                                    e.target.value
+                                  )
+                                }
+                                className="col-span-5 rounded border border-slate-300 px-1.5 py-1 text-[11px] text-slate-800"
+                              />
+                              <input
+                                type="date"
+                                value={b.hasta}
+                                onChange={(e) =>
+                                  handleActualizarBloqueBorrador(
+                                    grupo.key,
+                                    b.id,
+                                    'hasta',
+                                    e.target.value
+                                  )
+                                }
+                                className="col-span-5 rounded border border-slate-300 px-1.5 py-1 text-[11px] text-slate-800"
+                              />
+                              <div className="col-span-2 flex items-center gap-0.5">
+                                <input
+                                  type="number"
+                                  min={1}
+                                  max={20}
+                                  value={b.semanas}
+                                  onChange={(e) =>
+                                    handleActualizarBloqueBorrador(
+                                      grupo.key,
+                                      b.id,
+                                      'semanas',
+                                      e.target.value
+                                    )
+                                  }
+                                  className="w-full rounded border border-slate-300 px-1 py-1 text-center font-bold text-[#034EA2]"
+                                />
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
           <form
             onSubmit={handleAgregarEventoLP}
             className="lg:col-span-5 bg-white border border-slate-200/90 rounded-xl p-6 space-y-4"
@@ -1456,6 +1982,7 @@ export const PanelEditorColaborativo: React.FC<PanelEditorColaborativoProps> = (
                 </div>
               ))}
             </div>
+          </div>
           </div>
         </div>
       )}

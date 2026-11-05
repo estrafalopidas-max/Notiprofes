@@ -87,6 +87,46 @@ export interface RegistroHistorial {
   descripcion: string;
 }
 
+export interface BloqueCalendarioOficial {
+  id: string;
+  desde: string; // YYYY-MM-DD
+  hasta: string; // YYYY-MM-DD
+  desdeTexto: string;
+  hastaTexto: string;
+  semanas: number;
+  duracionTexto: string;
+}
+
+export interface FestivoColombia {
+  fecha: string; // YYYY-MM-DD
+  diaMesTexto: string; // ej. "2 de noviembre"
+  diaSemana: string; // ej. "Lunes"
+  nombre: string;
+}
+
+export interface PeriodoAcademicoConfig {
+  numero: 1 | 2 | 3;
+  ordinalSup: 'er' | 'do';
+  nombreCorto: string;
+  fechaInicio: string; // YYYY-MM-DD
+  fechaFin: string; // YYYY-MM-DD
+  textoRango: string;
+  totalSemanasLectivas: number;
+}
+
+export interface ConfiguracionCalendarioAnual {
+  anio: number;
+  resolucionTexto: string;
+  semanasLectivas: BloqueCalendarioOficial[];
+  semanasDesarrollo: BloqueCalendarioOficial[];
+  vacacionesDocentes: BloqueCalendarioOficial[];
+  recesoEstudiantil: BloqueCalendarioOficial[];
+  periodosAcademicos: PeriodoAcademicoConfig[];
+  festivos: FestivoColombia[];
+  actualizadoEn?: string;
+  actualizadoPor?: string;
+}
+
 export interface BoletinSemanal {
   id: string;
   numero: number;
@@ -117,6 +157,7 @@ export interface BoletinSemanal {
   horariosApoyo: HorarioPersonalApoyo[];
   firmas: FirmaDirectiva[];
   historialCambios: RegistroHistorial[];
+  calendarioOficial?: ConfiguracionCalendarioAnual;
 }
 
 export type RolUsuario = 'administrador' | 'editor';
@@ -254,5 +295,10 @@ export type OperacionBoletin =
   | {
       tipo: 'actualizar_poliza';
       poliza: { titulo: string; url: string };
+      autor: string;
+    }
+  | {
+      tipo: 'actualizar_calendario_anual';
+      calendario: ConfiguracionCalendarioAnual;
       autor: string;
     };
