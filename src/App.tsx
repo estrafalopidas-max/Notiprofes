@@ -439,7 +439,7 @@ export default function App() {
   };
 
   const handleCopiarUrlPublica = () => {
-    const url = `${window.location.origin}/api/public/boletin/${boletin.id}/html`;
+    const url = 'https://is.gd/notiprofes_vf';
     navigator.clipboard?.writeText(url);
     setCopiadoHeader(true);
     setTimeout(() => setCopiadoHeader(false), 2400);

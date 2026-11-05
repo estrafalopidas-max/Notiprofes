@@ -956,9 +956,8 @@ async function iniciarServidor() {
   const cacheLinksCortos = new Map<string, string>();
 
   app.post('/api/public/acortar', async (req, res) => {
-    const { url, numero } = req.body as { url?: string; numero?: number };
-    const fallbackCode = numero === 40 ? '52X1sx' : `vf26n${numero || 40}`;
-    const fallbackShort = `https://is.gd/${fallbackCode}`;
+    const { url } = req.body as { url?: string; numero?: number };
+    const fallbackShort = 'https://is.gd/notiprofes_vf';
 
     if (!url || typeof url !== 'string') {
       res.json({ shortUrl: fallbackShort });
