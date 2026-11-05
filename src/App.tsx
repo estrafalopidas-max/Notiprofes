@@ -35,6 +35,7 @@ import {
 import { GuiaDespliegueNas } from './components/GuiaDespliegueNas';
 import { ModalAccesoDirectivo } from './components/ModalAccesoDirectivo';
 import { ModalAdministracionUsuarios } from './components/ModalAdministracionUsuarios';
+import { ModalConfirmarLogout } from './components/ModalConfirmarLogout';
 import { ModalPrevisualizarBoletin } from './components/ModalPrevisualizarBoletin';
 import { ModalPublicacionNube } from './components/ModalPublicacionNube';
 import { DropdownPersonalizado } from './components/DropdownPersonalizado';
@@ -95,6 +96,7 @@ export default function App() {
   const [modalPreviewAbierto, setModalPreviewAbierto] = useState<boolean>(false);
   const [modalPublicacionAbierto, setModalPublicacionAbierto] = useState<boolean>(false);
   const [modalUsuariosAbierto, setModalUsuariosAbierto] = useState<boolean>(false);
+  const [modalConfirmarLogoutAbierto, setModalConfirmarLogoutAbierto] = useState<boolean>(false);
 
   const [presencia, setPresencia] = useState<PresenciaActiva[]>([]);
   const [wsConectado, setWsConectado] = useState<boolean>(false);
@@ -112,6 +114,31 @@ export default function App() {
 
   const headerRef = useRef<HTMLElement>(null);
   const [alturaHeader, setAlturaHeader] = useState<number>(140);
+
+  // Fecha actual del sistema formateada para el encabezado del menú lateral
+  const fechaSistemaTexto = useMemo(() => {
+    const hoy = new Date();
+    const diasSemana = ['DOMINGO', 'LUNES', 'MARTES', 'MIÉRCOLES', 'JUEVES', 'VIERNES', 'SÁBADO'];
+    const meses = [
+      'ENERO',
+      'FEBRERO',
+      'MARZO',
+      'ABRIL',
+      'MAYO',
+      'JUNIO',
+      'JULIO',
+      'AGOSTO',
+      'SEPTIEMBRE',
+      'OCTUBRE',
+      'NOVIEMBRE',
+      'DICIEMBRE',
+    ];
+    const nombreDia = diasSemana[hoy.getDay()];
+    const diaMes = hoy.getDate();
+    const nombreMes = meses[hoy.getMonth()];
+    const anio = hoy.getFullYear();
+    return `${nombreDia} ${diaMes} DE ${nombreMes} DE ${anio}`;
+  }, []);
 
   useEffect(() => {
     tokenRef.current = tokenSesion;
@@ -512,9 +539,6 @@ export default function App() {
                 ({estadoCalendario.numeroPeriodo}P)
               </span>
             </div>
-            <span className="text-[10px] font-mono-tabular font-semibold text-slate-500">
-              {estadoCalendario.fechaPublicacionFormateada}
-            </span>
           </div>
 
           {/* Vista completa permanente (pantallas sm en adelante) */}
@@ -530,10 +554,6 @@ export default function App() {
                   PERIODO
                 </span>
               </div>
-              <span className="text-[11px] font-mono-tabular font-semibold text-slate-500">
-                <strong className="text-slate-700 font-bold">Fecha:</strong>{' '}
-                {estadoCalendario.fechaPublicacionFormateada}
-              </span>
             </div>
 
             <div className="mt-1.5 space-y-0.5">
@@ -676,12 +696,27 @@ export default function App() {
               : '-translate-x-full lg:translate-x-0'
           }`}
         >
-          {/* Cabecera del Drawer: Estrictamente para controlar el menú (cerrar / contraer) */}
-          <div className="p-3 border-b border-slate-200/80 bg-slate-50/60 flex items-center justify-between">
-            <span className="text-[11px] font-display font-extrabold uppercase tracking-wider text-[#034EA2]">
-              {!sidebarColapsado ? 'Menú principal' : ''}
-            </span>
-            <div className="flex items-center gap-1">
+          {/* Cabecera del Drawer: Muestra la fecha actual del sistema */}
+          <div className="p-3 border-b border-slate-200/80 bg-slate-50/80 flex items-center justify-between min-w-0">
+            {!sidebarColapsado ? (
+              <div
+                className="flex items-center gap-1.5 min-w-0 text-[#034EA2]"
+                title={`Fecha del sistema: ${fechaSistemaTexto}`}
+              >
+                <Calendar className="w-3.5 h-3.5 text-[#007DC5] shrink-0" />
+                <span className="text-[10.5px] font-display font-extrabold uppercase tracking-wide truncate text-[#034EA2]">
+                  {fechaSistemaTexto}
+                </span>
+              </div>
+            ) : (
+              <div
+                className="w-full flex justify-center text-[#034EA2]"
+                title={`Fecha del sistema: ${fechaSistemaTexto}`}
+              >
+                <Calendar className="w-4 h-4 text-[#007DC5] shrink-0" />
+              </div>
+            )}
+            <div className="flex items-center gap-1 shrink-0">
               <button
                 type="button"
                 onClick={() => setSidebarColapsado((prev) => !prev)}
@@ -1012,10 +1047,10 @@ export default function App() {
               </div>
             </div>
 
-            {/* Botón Cerrar Sesión Permanente */}
+            {/* Botón Cerrar Sesión Permanente con confirmación */}
             <button
               type="button"
-              onClick={handleCerrarSesion}
+              onClick={() => setModalConfirmarLogoutAbierto(true)}
               title={
                 usuarioDirectivo
                   ? `Cerrar sesión de ${usuarioDirectivo.nombre}`
@@ -1156,6 +1191,13 @@ export default function App() {
           setModalUsuariosAbierto(false);
           setModalLoginAbierto(true);
         }}
+      />
+
+      <ModalConfirmarLogout
+        abierto={modalConfirmarLogoutAbierto}
+        usuarioActual={usuarioDirectivo}
+        onCerrar={() => setModalConfirmarLogoutAbierto(false)}
+        onConfirmarLogout={handleCerrarSesion}
       />
     </div>
   );

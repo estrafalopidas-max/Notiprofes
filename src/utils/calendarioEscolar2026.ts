@@ -743,15 +743,6 @@ export interface ResumenCalendarioBoletin {
 }
 
 function formatearFechaPublicacion(boletin: BoletinSemanal): string {
-  if (boletin.ultimaActualizacion) {
-    const fecha = new Date(boletin.ultimaActualizacion);
-    if (!isNaN(fecha.getTime())) {
-      const d = String(fecha.getDate()).padStart(2, '0');
-      const m = String(fecha.getMonth() + 1).padStart(2, '0');
-      const y = fecha.getFullYear();
-      return `${d}/${m}/${y}`;
-    }
-  }
   return boletin.fechaEmision;
 }
 
@@ -918,5 +909,35 @@ export function calcularFechaViernesSiguienteSemana(
   const dd = String(viernesDate.getUTCDate()).padStart(2, '0');
   const mm = String(viernesDate.getUTCMonth() + 1).padStart(2, '0');
   const yyyy = viernesDate.getUTCFullYear();
+  return `${dd}/${mm}/${yyyy}`;
+}
+
+/**
+ * Calcula la fecha de emisión (Viernes) para la semana presente/actual.
+ */
+export function calcularFechaViernesSemanaActual(
+  diasActuales?: DiaProgramacion[],
+  anioActivo: number = 2026
+): string {
+  if (diasActuales && diasActuales.length > 0) {
+    const diaViernes =
+      diasActuales.find((d) => d.id === 'dia-viernes') ||
+      diasActuales[diasActuales.length - 1];
+    if (diaViernes) {
+      const parsed = parsearDiaYMes(diaViernes.fechaTexto);
+      if (parsed) {
+        const dd = String(parsed.dia).padStart(2, '0');
+        const mm = String(parsed.mesIndex + 1).padStart(2, '0');
+        return `${dd}/${mm}/${anioActivo}`;
+      }
+    }
+  }
+  const hoy = new Date();
+  const diaSemana = hoy.getDay();
+  const offsetViernes = 5 - (diaSemana === 0 ? 7 : diaSemana);
+  const fechaViernes = new Date(hoy.getTime() + offsetViernes * 86400000);
+  const dd = String(fechaViernes.getDate()).padStart(2, '0');
+  const mm = String(fechaViernes.getMonth() + 1).padStart(2, '0');
+  const yyyy = fechaViernes.getFullYear();
   return `${dd}/${mm}/${yyyy}`;
 }

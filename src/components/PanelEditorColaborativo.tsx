@@ -2,6 +2,8 @@ import React, { useState } from 'react';
 import {
   AlertTriangle,
   Bell,
+  Calendar,
+  CalendarDays,
   CalendarPlus,
   Check,
   ChevronDown,
@@ -12,11 +14,13 @@ import {
   FileSpreadsheet,
   FileText,
   History,
+  LayoutGrid,
   Link2,
   MapPin,
   Pencil,
   Plus,
   RotateCcw,
+  ShieldCheck,
   Sparkles,
   Trash2,
   Upload,
@@ -75,6 +79,32 @@ export type SeccionEditor =
   | 'horarios'
   | 'historial'
   | 'clonar';
+
+function obtenerIconoSeccion(seccion: string) {
+  const norm = seccion ? seccion.toLowerCase() : '';
+  if (norm.includes('semanal') || norm.includes('programación') || norm.includes('actividades')) {
+    return <Calendar className="w-3.5 h-3.5 shrink-0" />;
+  }
+  if (norm.includes('documento') || norm.includes('enlace') || norm.includes('resolución') || norm.includes('horarios de la semana')) {
+    return <FileText className="w-3.5 h-3.5 shrink-0" />;
+  }
+  if (norm.includes('practica') || norm.includes('reconocimiento') || norm.includes('felicitaciones')) {
+    return <ShieldCheck className="w-3.5 h-3.5 shrink-0" />;
+  }
+  if (norm.includes('largo') || norm.includes('calendario') || norm.includes('decreto')) {
+    return <CalendarDays className="w-3.5 h-3.5 shrink-0" />;
+  }
+  if (norm.includes('horarios') || norm.includes('personal de apoyo')) {
+    return <Clock className="w-3.5 h-3.5 shrink-0" />;
+  }
+  if (norm.includes('historial') || norm.includes('cambio')) {
+    return <History className="w-3.5 h-3.5 shrink-0" />;
+  }
+  if (norm.includes('nueva') || norm.includes('clonar') || norm.includes('semana')) {
+    return <CopyPlus className="w-3.5 h-3.5 shrink-0" />;
+  }
+  return <LayoutGrid className="w-3.5 h-3.5 shrink-0" />;
+}
 
 export const PanelEditorColaborativo: React.FC<PanelEditorColaborativoProps> = ({
   boletin,
@@ -746,14 +776,17 @@ export const PanelEditorColaborativo: React.FC<PanelEditorColaborativoProps> = (
             <span>
               <strong className="text-white">{presencia.length}</strong> equipo(s) en línea:
             </span>
-            <div className="flex items-center gap-2 ml-1">
+            <div className="flex flex-wrap items-center gap-1.5 ml-1">
               {presencia.slice(0, 4).map((p) => (
                 <span
                   key={p.clienteId}
                   title={`${p.nombre} (${p.cargo}) — Editando: ${p.seccionActiva}`}
-                  className="text-xs font-semibold text-white underline decoration-sky-400"
+                  className="inline-flex items-center gap-1.5 bg-white/10 hover:bg-white/20 border border-white/25 rounded-md px-2 py-0.5 text-xs font-semibold text-white transition-colors cursor-help"
                 >
-                  {p.nombre.split(' ')[0]} ({p.seccionActiva})
+                  <span>{p.nombre.split(' ')[0]}</span>
+                  <span className="text-sky-300 flex items-center shrink-0" title={`Sección: ${p.seccionActiva}`}>
+                    {obtenerIconoSeccion(p.seccionActiva)}
+                  </span>
                 </span>
               ))}
             </div>
