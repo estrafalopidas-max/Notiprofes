@@ -213,40 +213,37 @@ export const ModalAccesoDirectivo: React.FC<ModalAccesoDirectivoProps> = ({
       className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/75 backdrop-blur-xs p-4 overflow-y-auto"
     >
       <div className="max-w-[420px] w-full bg-[#0F223D] rounded-3xl overflow-hidden shadow-2xl border border-slate-700/40 my-auto animate-in fade-in zoom-in-95 duration-150">
-        {/* CABECERA SUPERIOR OSCURA CON TARJETA DE LOGO INSTITUCIONAL */}
-        <div className="bg-[#0F223D] px-6 pt-7 pb-4 flex flex-col items-center text-center relative">
+        {/* CABECERA SUPERIOR OSCURA CON LOGO INSTITUCIONAL DESPEJADO */}
+        <div className="bg-[#0F223D] px-6 pt-8 pb-4 flex flex-col items-center text-center relative shrink-0">
           <button
             type="button"
             onClick={onCerrar}
             aria-label="Cerrar ventana de acceso"
-            className="absolute top-4 right-4 z-20 p-2 rounded-full text-slate-300 hover:text-white bg-white/10 hover:bg-white/20 transition-all cursor-pointer shadow-sm"
+            className="absolute top-3 right-3 z-20 p-1.5 rounded-full text-slate-300 hover:text-white bg-white/10 hover:bg-white/20 transition-all cursor-pointer"
           >
-            <X className="w-5 h-5" />
+            <X className="w-4 h-4" />
           </button>
 
-          {/* Logo institucional adjunto sin fondo blanco */}
-          <div className="w-full max-w-[380px] flex items-center justify-center mb-3 pointer-events-none select-none">
+          {/* Logo institucional oficial con margen superior libre para no chocar con el botón cerrar */}
+          <div className="w-full max-w-[330px] flex items-center justify-center mb-2.5 pointer-events-none select-none">
             <img
               src="/public/assets/aistudio/logo_html_859fb25c.png"
               alt="Institución Educativa Villa Flora"
               referrerPolicy="no-referrer"
-              className="h-[68px] sm:h-[78px] w-auto max-w-full object-contain drop-shadow-sm pointer-events-none"
+              className="h-[58px] sm:h-[64px] w-auto max-w-full object-contain drop-shadow-sm pointer-events-none"
             />
           </div>
 
-          {/* Título y subtítulo institucional exactos */}
+          {/* Título compacto en una sola línea sin textos redundantes */}
           <h2
             id="titulo-modal-auth"
-            className="text-xl sm:text-2xl font-display font-extrabold text-white tracking-tight leading-tight"
+            className="text-sm sm:text-base font-display font-extrabold tracking-wider uppercase text-sky-100"
           >
             NOTIPROFES DIGITAL
           </h2>
-          <p className="text-xs sm:text-sm text-sky-200/90 font-medium mt-1 leading-snug">
-            Canal Oficial Docente, Directivo y Administrativo · I.E. Villa Flora
-          </p>
 
           {/* Franja dorada divisoria institucional */}
-          <div className="w-full h-1 bg-amber-400 rounded-full mt-4" />
+          <div className="w-full h-1 bg-amber-400 rounded-full mt-3" />
         </div>
 
         {/* CUERPO BLANCO DEL FORMULARIO */}
@@ -340,7 +337,7 @@ export const ModalAccesoDirectivo: React.FC<ModalAccesoDirectivoProps> = ({
               <button
                 type="submit"
                 disabled={cargando}
-                className="w-full py-2 sm:py-2.5 px-4 rounded-xl font-bold text-sm text-white bg-[#1E60E6] hover:bg-[#1550c7] active:bg-[#0f44ad] shadow-sm hover:shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+                className="w-full py-2 sm:py-2.5 px-4 rounded-xl font-bold text-sm text-white bg-[#007DC5] hover:bg-[#034EA2] shadow-sm hover:shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
               >
                 <Lock className="w-4 h-4" />
                 <span>{cargando ? 'Verificando...' : 'Iniciar sesión'}</span>

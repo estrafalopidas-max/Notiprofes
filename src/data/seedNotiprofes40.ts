@@ -388,13 +388,13 @@ export const BOLETIN_40_SEED: BoletinSemanal = {
       fechaTexto: '29 oct, 3, 6 y 11 de noviembre',
       descripcion:
         'Capacitaciones del Icontec “Actualización en la Norma ISO 21001” (7:00 am a 1:00 pm). Grupo 3 (29 oct y 6 nov): Juliana Arias Suarez. Grupo 4 (3 y 11 nov): Natalia Andrea Caro Sanchez y Elsa Alarcón (11 nov). Edificio One Plaza Cra 43 A #5A-113 Av. El Poblado.',
-      categoria: 'capacitacion',
+      categoria: 'proxima_actividad',
     },
     {
       id: 'cal-14',
       fechaTexto: '12 de noviembre',
       descripcion: 'Auditoría Icontec: La auditoría tendrá lugar el día 12 de noviembre, vienen 2 auditoras.',
-      categoria: 'institucional',
+      categoria: 'proxima_actividad',
       destacado: true,
     },
     {
@@ -625,6 +625,24 @@ export const BOLETIN_40_SEED: BoletinSemanal = {
     {
       nombre: 'ELSA RUBY ALARCÓN MONTOYA',
       cargo: 'COORDINADORA ACADÉMICA',
+    },
+  ],
+  historialCambios: [
+    {
+      id: 'hist-1',
+      timestamp: '2026-11-04 08:30 a.m.',
+      usuario: 'Carlos Alberto Mazo (Rector)',
+      seccion: 'Programación Semanal',
+      accion: 'Creación y Apertura',
+      descripcion: 'Inicialización de la edición N° 40 para la semana del 2 al 6 de noviembre de 2026.',
+    },
+    {
+      id: 'hist-2',
+      timestamp: '2026-11-04 10:15 a.m.',
+      usuario: 'Elsa Ruby Alarcón (Coordinadora Académica)',
+      seccion: 'Actividades a Largo Plazo',
+      accion: 'Agregar Evento',
+      descripcion: 'Registro de la auditoría Icontec en el calendario a largo plazo.',
     },
   ],
 };

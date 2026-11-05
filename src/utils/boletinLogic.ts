@@ -5,8 +5,14 @@ import {
   OperacionBoletin,
 } from '../types/notiprofes';
 import {
+  calcularEstadoCalendarioBoletin,
+  FESTIVOS_COLOMBIA_2026,
   formatearRangoSemanaSegunMeses,
   generarDiasSiguienteSemanaConFestivos,
+  RECESO_ESTUDIANTIL_2026,
+  SEMANAS_DESARROLLO_INSTITUCIONAL_2026,
+  SEMANAS_LECTIVAS_2026,
+  VACACIONES_DOCENTES_2026,
 } from './calendarioEscolar2026';
 
 export interface CriteriosFiltroBoletin {
@@ -104,9 +110,11 @@ export function aplicarOperacionBoletin(
     actualizadoPor: op.autor,
   };
 
+  let boletinModificado: BoletinSemanal;
+
   switch (op.tipo) {
     case 'agregar_actividad': {
-      return {
+      boletinModificado = {
         ...baseActualizada,
         dias: baseActualizada.dias.map((dia) => {
           if (dia.id !== op.diaId) return dia;
@@ -119,10 +127,11 @@ export function aplicarOperacionBoletin(
           };
         }),
       };
+      break;
     }
 
     case 'actualizar_actividad': {
-      return {
+      boletinModificado = {
         ...baseActualizada,
         dias: baseActualizada.dias.map((dia) => {
           if (dia.id !== op.diaId) return dia;
@@ -134,10 +143,11 @@ export function aplicarOperacionBoletin(
           };
         }),
       };
+      break;
     }
 
     case 'eliminar_actividad': {
-      return {
+      boletinModificado = {
         ...baseActualizada,
         dias: baseActualizada.dias.map((dia) => {
           if (dia.id !== op.diaId) return dia;
@@ -147,10 +157,11 @@ export function aplicarOperacionBoletin(
           };
         }),
       };
+      break;
     }
 
     case 'alternar_festivo_dia': {
-      return {
+      boletinModificado = {
         ...baseActualizada,
         dias: baseActualizada.dias.map((dia) =>
           dia.id === op.diaId
@@ -162,110 +173,245 @@ export function aplicarOperacionBoletin(
             : dia
         ),
       };
+      break;
     }
 
     case 'agregar_evento_largo_plazo': {
       if (baseActualizada.proyeccionCalendario.some((e) => e.id === op.evento.id)) {
         return baseActualizada;
       }
-      return {
+      boletinModificado = {
         ...baseActualizada,
         proyeccionCalendario: [...baseActualizada.proyeccionCalendario, op.evento],
       };
+      break;
     }
 
     case 'eliminar_evento_largo_plazo': {
-      return {
+      boletinModificado = {
         ...baseActualizada,
         proyeccionCalendario: baseActualizada.proyeccionCalendario.filter(
           (e) => e.id !== op.eventoId
         ),
       };
+      break;
     }
 
     case 'agregar_felicitacion': {
       if (baseActualizada.felicitaciones.some((f) => f.id === op.felicitacion.id)) {
         return baseActualizada;
       }
-      return {
+      boletinModificado = {
         ...baseActualizada,
         felicitaciones: [...baseActualizada.felicitaciones, op.felicitacion],
       };
+      break;
     }
 
     case 'eliminar_felicitacion': {
-      return {
+      boletinModificado = {
         ...baseActualizada,
         felicitaciones: baseActualizada.felicitaciones.filter((f) => f.id !== op.felicitacionId),
       };
+      break;
     }
 
     case 'agregar_aviso_practica': {
-      return {
+      boletinModificado = {
         ...baseActualizada,
         avisosPracticas: [...baseActualizada.avisosPracticas, op.aviso],
       };
+      break;
     }
 
     case 'eliminar_aviso_practica': {
-      return {
+      boletinModificado = {
         ...baseActualizada,
         avisosPracticas: baseActualizada.avisosPracticas.filter((_, idx) => idx !== op.indice),
       };
+      break;
     }
 
     case 'agregar_suspension': {
       if (baseActualizada.suspensiones.some((s) => s.id === op.suspension.id)) {
         return baseActualizada;
       }
-      return {
+      boletinModificado = {
         ...baseActualizada,
         suspensiones: [...baseActualizada.suspensiones, op.suspension],
       };
+      break;
     }
 
     case 'eliminar_suspension': {
-      return {
+      boletinModificado = {
         ...baseActualizada,
         suspensiones: baseActualizada.suspensiones.filter((s) => s.id !== op.suspensionId),
       };
+      break;
     }
 
     case 'actualizar_horario_apoyo': {
-      return {
+      boletinModificado = {
         ...baseActualizada,
         horariosApoyo: baseActualizada.horariosApoyo.map((h) =>
           h.id === op.horario.id ? op.horario : h
         ),
       };
+      break;
     }
 
     case 'agregar_documento': {
       if (baseActualizada.documentosPermanentes.some((d) => d.id === op.documento.id)) {
         return baseActualizada;
       }
-      return {
+      boletinModificado = {
         ...baseActualizada,
         documentosPermanentes: [...baseActualizada.documentosPermanentes, op.documento],
       };
+      break;
     }
 
     case 'eliminar_documento': {
-      return {
+      boletinModificado = {
         ...baseActualizada,
         documentosPermanentes: baseActualizada.documentosPermanentes.filter(
           (d) => d.id !== op.documentoId
         ),
       };
+      break;
     }
 
     case 'actualizar_encabezado': {
-      return {
+      boletinModificado = {
         ...baseActualizada,
         ...op.datos,
       };
+      break;
+    }
+
+    case 'actualizar_poliza': {
+      boletinModificado = {
+        ...baseActualizada,
+        polizaEscolarDoc: op.poliza,
+      };
+      break;
     }
   }
+
+  const nowStr = new Date().toLocaleString('es-CO', {
+    timeZone: 'America/Bogota',
+    dateStyle: 'short',
+    timeStyle: 'medium',
+  });
+
+  let seccion = 'General';
+  let accion: string = op.tipo;
+  let descripcion = `Modificación realizada por ${op.autor}`;
+
+  switch (op.tipo) {
+    case 'agregar_actividad':
+      seccion = 'Programación Semanal';
+      accion = 'Agregar Actividad';
+      descripcion = `Se agregó la actividad "${op.actividad.titulo}" (${op.actividad.hora}).`;
+      break;
+    case 'actualizar_actividad':
+      seccion = 'Programación Semanal';
+      accion = 'Actualizar / Reprogramar';
+      descripcion = `Se actualizó la actividad "${op.actividad.titulo}" (${op.actividad.hora}).`;
+      break;
+    case 'eliminar_actividad':
+      seccion = 'Programación Semanal';
+      accion = 'Eliminar Actividad';
+      descripcion = `Se eliminó una actividad.`;
+      break;
+    case 'alternar_festivo_dia':
+      seccion = 'Programación Semanal';
+      accion = 'Cambiar Estado Festivo';
+      descripcion = `Se modificó el estado festivo del día ${op.diaId}.`;
+      break;
+    case 'agregar_evento_largo_plazo':
+      seccion = 'Calendario a Largo Plazo';
+      accion = 'Agregar Evento';
+      descripcion = `Se agregó el evento: "${op.evento.descripcion}".`;
+      break;
+    case 'eliminar_evento_largo_plazo':
+      seccion = 'Calendario a Largo Plazo';
+      accion = 'Eliminar Evento';
+      descripcion = `Se eliminó un evento del calendario a largo plazo.`;
+      break;
+    case 'agregar_felicitacion':
+      seccion = 'Noti-Prácticas';
+      accion = 'Agregar Felicitación';
+      descripcion = `Se agregó mención de honor.`;
+      break;
+    case 'eliminar_felicitacion':
+      seccion = 'Noti-Prácticas';
+      accion = 'Eliminar Felicitación';
+      descripcion = `Se eliminó una mención de honor.`;
+      break;
+    case 'agregar_aviso_practica':
+      seccion = 'Noti-Prácticas';
+      accion = 'Agregar Recomendación';
+      descripcion = `Se añadió una directriz general.`;
+      break;
+    case 'eliminar_aviso_practica':
+      seccion = 'Noti-Prácticas';
+      accion = 'Eliminar Recomendación';
+      descripcion = `Se eliminó una directriz general.`;
+      break;
+    case 'agregar_suspension':
+      seccion = 'Noti-Prácticas (Suspensiones)';
+      accion = 'Registrar Suspensión';
+      descripcion = `Se registró un nuevo reporte de suspensión.`;
+      break;
+    case 'eliminar_suspension':
+      seccion = 'Noti-Prácticas (Suspensiones)';
+      accion = 'Eliminar Suspensión';
+      descripcion = `Se eliminó un registro de suspensión.`;
+      break;
+    case 'actualizar_horario_apoyo':
+      seccion = 'Horarios Personal de Apoyo';
+      accion = 'Actualizar Horario';
+      descripcion = `Se actualizó el horario de apoyo.`;
+      break;
+    case 'agregar_documento':
+      seccion = 'Documentos y Enlaces';
+      accion = 'Vincular Documento';
+      descripcion = `Se vinculó el documento "${op.documento.titulo}".`;
+      break;
+    case 'eliminar_documento':
+      seccion = 'Documentos y Enlaces';
+      accion = 'Eliminar Documento';
+      descripcion = `Se eliminó un documento vinculado.`;
+      break;
+    case 'actualizar_encabezado':
+      seccion = 'Encabezado / Configuración';
+      accion = 'Actualizar Encabezado';
+      descripcion = op.datos.frasePedagogica
+        ? `Se actualizó la reflexión pedagógica semanal.`
+        : `Se actualizaron datos generales del boletín N° ${op.datos.numero || boletin.numero}.`;
+      break;
+    case 'actualizar_poliza':
+      seccion = 'Documentos y Enlaces';
+      accion = 'Actualizar Póliza Escolar';
+      descripcion = `Se actualizó la póliza escolar oficial: "${op.poliza.titulo}".`;
+      break;
+  }
+
+  const nuevoRegistro = {
+    id: `hist-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+    timestamp: nowStr,
+    usuario: op.autor,
+    seccion,
+    accion,
+    descripcion,
+  };
+
+  return {
+    ...boletinModificado,
+    historialCambios: [nuevoRegistro, ...(boletin.historialCambios || [])],
+  };
 }
 
 /**
@@ -545,6 +691,39 @@ export function generarHtmlPublicoBoletin(boletin: BoletinSemanal): string {
   const proximasItems = boletin.proyeccionCalendario.filter(
     (e) => e.categoria !== 'finalizacion'
   );
+  const estadoCalendario = calcularEstadoCalendarioBoletin(boletin);
+
+  const renderBloquesCalendarioHtml = (
+    bloques: typeof SEMANAS_LECTIVAS_2026,
+    colorTexto: string
+  ) =>
+    bloques
+      .map(
+        (b) => `
+        <div class="cal-item">
+          <span>${escaparHtml(b.desdeTexto.replace(' de 2026', ''))} al ${escaparHtml(
+            b.hastaTexto.replace(' de 2026', '')
+          )}</span>
+          <strong style="color: ${colorTexto}; flex-shrink: 0;">${b.semanas} sem.</strong>
+        </div>`
+      )
+      .join('');
+
+  const festivosGridHtml = FESTIVOS_COLOMBIA_2026.map((fest) => {
+    const esDeEstaSemana = estadoCalendario.festivosSemana.some(
+      (f) => f.fecha === fest.fecha
+    );
+    return `
+      <div class="festivo-card ${esDeEstaSemana ? 'festivo-activo' : ''}">
+        <div class="festivo-top">
+          <span class="festivo-dia">${escaparHtml(fest.diaSemana.slice(0, 3))} ${escaparHtml(
+            fest.diaMesTexto
+          )}</span>
+          ${esDeEstaSemana ? '<span class="festivo-tag-hoy">Esta sem.</span>' : ''}
+        </div>
+        <div class="festivo-nombre">${escaparHtml(fest.nombre)}</div>
+      </div>`;
+  }).join('');
 
   const seccionSuspensionesHtml =
     boletin.mostrarSuspensionesPublico && boletin.suspensiones.length > 0
@@ -1198,6 +1377,188 @@ export function generarHtmlPublicoBoletin(boletin: BoletinSemanal): string {
       font-size: 12.5px;
     }
     .oculto { display: none !important; }
+    .calendario-details {
+      background: #ffffff;
+      border: 1px solid #cbd5e1;
+      border-radius: 12px;
+      overflow: hidden;
+      margin-bottom: 28px;
+      box-shadow: 0 2px 6px rgba(15, 23, 42, 0.03);
+    }
+    .calendario-summary {
+      list-style: none;
+      cursor: pointer;
+      padding: 16px 20px;
+      background: linear-gradient(90deg, #f8fafc 0%, #f0f9ff 100%);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 14px;
+      flex-wrap: wrap;
+      user-select: none;
+      border-bottom: 1px solid transparent;
+      transition: background 0.15s ease;
+    }
+    .calendario-summary::-webkit-details-marker { display: none; }
+    .calendario-details[open] .calendario-summary {
+      border-bottom-color: #dbe4f0;
+    }
+    .calendario-summary:hover {
+      background: linear-gradient(90deg, #f1f5f9 0%, #e0f2fe 100%);
+    }
+    .cal-summary-left {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .cal-bar-accent {
+      width: 6px;
+      height: 28px;
+      border-radius: 999px;
+      background: var(--vf-blue-bright);
+      flex-shrink: 0;
+    }
+    .cal-summary-sub {
+      font-size: 11.5px;
+      color: #64748b;
+      margin-top: 2px;
+      font-weight: 500;
+    }
+    .cal-summary-right {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .cal-periodo-badge {
+      background: #e0f2fe;
+      border: 1px solid #bae6fd;
+      color: var(--vf-blue-deep);
+      font-size: 11px;
+      font-weight: 800;
+      padding: 5px 11px;
+      border-radius: 8px;
+      letter-spacing: 0.02em;
+    }
+    .cal-toggle-pill {
+      background: var(--vf-blue-bright);
+      color: #ffffff;
+      font-size: 11px;
+      font-weight: 700;
+      padding: 5px 12px;
+      border-radius: 8px;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .calendario-details[open] .cal-toggle-text-closed { display: none; }
+    .calendario-details:not([open]) .cal-toggle-text-open { display: none; }
+    .calendario-body {
+      padding: 20px;
+      display: grid;
+      grid-template-columns: 7fr 5fr;
+      gap: 20px;
+    }
+    @media (max-width: 900px) {
+      .calendario-body { grid-template-columns: 1fr; }
+    }
+    .cal-articulos-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 14px;
+      align-content: start;
+    }
+    @media (max-width: 600px) {
+      .cal-articulos-grid { grid-template-columns: 1fr; }
+    }
+    .cal-box {
+      background: #f8fafc;
+      border: 1px solid #e2e8f0;
+      border-radius: 10px;
+      padding: 14px;
+    }
+    .cal-box-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 10px;
+    }
+    .cal-box-title {
+      font-family: 'Outfit', sans-serif;
+      font-size: 12px;
+      font-weight: 800;
+      text-transform: uppercase;
+      color: var(--vf-blue-deep);
+      margin: 0;
+    }
+    .cal-badge {
+      font-size: 10px;
+      font-weight: 800;
+      color: #ffffff;
+      padding: 2px 8px;
+      border-radius: 5px;
+    }
+    .cal-item {
+      background: #ffffff;
+      border: 1px solid #e2e8f0;
+      border-radius: 7px;
+      padding: 7px 10px;
+      font-size: 11.5px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 6px;
+      color: #334155;
+      font-weight: 500;
+    }
+    .cal-item:last-child { margin-bottom: 0; }
+    .festivos-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 7px;
+    }
+    @media (max-width: 520px) {
+      .festivos-grid { grid-template-columns: 1fr; }
+    }
+    .festivo-card {
+      background: #ffffff;
+      border: 1px solid #e2e8f0;
+      border-radius: 7px;
+      padding: 7px 10px;
+      font-size: 11px;
+    }
+    .festivo-card.festivo-activo {
+      background: #fff1f2;
+      border-color: var(--vf-magenta);
+    }
+    .festivo-top {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 4px;
+      font-weight: 800;
+      color: var(--vf-blue-deep);
+    }
+    .festivo-card.festivo-activo .festivo-top {
+      color: var(--vf-magenta);
+    }
+    .festivo-tag-hoy {
+      background: var(--vf-magenta);
+      color: #ffffff;
+      font-size: 9px;
+      padding: 1px 5px;
+      border-radius: 4px;
+      text-transform: uppercase;
+    }
+    .festivo-nombre {
+      font-size: 10.5px;
+      color: #64748b;
+      margin-top: 2px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
     @media print {
       body { background: #fff; padding: 0; }
       .barra-superior { display: none; }
@@ -1221,7 +1582,8 @@ export function generarHtmlPublicoBoletin(boletin: BoletinSemanal): string {
           <div class="acciones-top" style="margin-top: 10px; justify-content: flex-end;">
             <button id="btn-vista-grafica" class="btn-modo activo" onclick="cambiarVista('grafica')">Vista Gráfica</button>
             <button id="btn-vista-tabla" class="btn-modo" onclick="cambiarVista('tabla')">Vista Tabla</button>
-            <button class="btn-imprimir" onclick="window.print()">Imprimir / Guardar PDF</button>
+            <button class="btn-imprimir" onclick="window.print()">Imprimir</button>
+            <button class="btn-imprimir" style="background: var(--vf-blue-deep);" onclick="window.print()">Guardar PDF</button>
           </div>
         </div>
       </div>
@@ -1334,7 +1696,6 @@ export function generarHtmlPublicoBoletin(boletin: BoletinSemanal): string {
 
       <div class="banner-notipracticas">
         <span>NOTI PRÁCTICAS · RECONOCIMIENTOS Y CONVIVENCIA</span>
-        <span style="font-size: 11px; font-weight: 700; opacity: 0.9;">I.E. VILLA FLORA</span>
       </div>
 
       <div class="seccion-bloque">
@@ -1405,6 +1766,72 @@ export function generarHtmlPublicoBoletin(boletin: BoletinSemanal): string {
         </ul>
       </div>
 
+      <details class="calendario-details">
+        <summary class="calendario-summary">
+          <div class="cal-summary-left">
+            <div class="cal-bar-accent"></div>
+            <div>
+              <h3 class="subtitulo-seccion" style="margin: 0;">Calendario Académico Oficial 2026 (Medellín) y Festivos del Año</h3>
+              <div class="cal-summary-sub">Resolución Oficial Distrito de Medellín: 40 semanas lectivas, 6 de desarrollo institucional, 7 de vacaciones docentes, 13 de receso estudiantil y 18 festivos</div>
+            </div>
+          </div>
+          <div class="cal-summary-right">
+            <span class="cal-periodo-badge">${estadoCalendario.numeroPeriodo}<sup>${escaparHtml(
+              estadoCalendario.ordinalSup
+            )}</sup> PERIODO · ${escaparHtml(estadoCalendario.textoSemanaDePeriodo)}</span>
+            <span class="cal-toggle-pill">
+              <span class="cal-toggle-text-closed">▼ Desplegar Calendario</span>
+              <span class="cal-toggle-text-open">▲ Ocultar Calendario</span>
+            </span>
+          </div>
+        </summary>
+        <div class="calendario-body">
+          <div class="cal-articulos-grid">
+            <div class="cal-box">
+              <div class="cal-box-head">
+                <h4 class="cal-box-title">Art. 2 · Semanas Lectivas</h4>
+                <span class="cal-badge" style="background: #034EA2;">40 semanas</span>
+              </div>
+              ${renderBloquesCalendarioHtml(SEMANAS_LECTIVAS_2026, '#007DC5')}
+            </div>
+
+            <div class="cal-box">
+              <div class="cal-box-head">
+                <h4 class="cal-box-title">Art. 3 · Desarrollo Inst.</h4>
+                <span class="cal-badge" style="background: #007DC5;">6 semanas</span>
+              </div>
+              ${renderBloquesCalendarioHtml(SEMANAS_DESARROLLO_INSTITUCIONAL_2026, '#034EA2')}
+            </div>
+
+            <div class="cal-box">
+              <div class="cal-box-head">
+                <h4 class="cal-box-title">Art. 4 · Vacaciones Docentes</h4>
+                <span class="cal-badge" style="background: #334155;">7 semanas</span>
+              </div>
+              ${renderBloquesCalendarioHtml(VACACIONES_DOCENTES_2026, '#334155')}
+            </div>
+
+            <div class="cal-box">
+              <div class="cal-box-head">
+                <h4 class="cal-box-title">Art. 5 · Receso Estudiantil</h4>
+                <span class="cal-badge" style="background: #047857;">13 semanas</span>
+              </div>
+              ${renderBloquesCalendarioHtml(RECESO_ESTUDIANTIL_2026, '#047857')}
+            </div>
+          </div>
+
+          <div class="cal-box">
+            <div class="cal-box-head">
+              <h4 class="cal-box-title">Festivos Oficiales de Colombia · Año 2026</h4>
+              <span class="cal-badge" style="background: #ED145B;">${FESTIVOS_COLOMBIA_2026.length} festivos</span>
+            </div>
+            <div class="festivos-grid">
+              ${festivosGridHtml}
+            </div>
+          </div>
+        </div>
+      </details>
+
       <div class="seccion-bloque">
         <div class="sec-head">
           <h3 class="subtitulo-seccion">Horarios del Personal de Apoyo, Auxiliares y Seguridad</h3>
@@ -1472,6 +1899,11 @@ export function generarHtmlPublicoBoletin(boletin: BoletinSemanal): string {
         btnGrafica.classList.add('activo');
       }
     }
+    try {
+      if (window.history && window.history.replaceState && window.location.pathname !== '/') {
+        window.history.replaceState({}, document.title, '/');
+      }
+    } catch (e) {}
   </script>
 </body>
 </html>`;

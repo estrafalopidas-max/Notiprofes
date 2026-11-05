@@ -6,6 +6,7 @@ import {
   ExternalLink,
   FileText,
   Globe,
+  History,
   LayoutGrid,
   LogIn,
   LogOut,
@@ -35,6 +36,7 @@ import { GuiaDespliegueNas } from './components/GuiaDespliegueNas';
 import { ModalAccesoDirectivo } from './components/ModalAccesoDirectivo';
 import { ModalAdministracionUsuarios } from './components/ModalAdministracionUsuarios';
 import { ModalPrevisualizarBoletin } from './components/ModalPrevisualizarBoletin';
+import { ModalPublicacionNube } from './components/ModalPublicacionNube';
 import { DropdownPersonalizado } from './components/DropdownPersonalizado';
 import { calcularEstadoCalendarioBoletin } from './utils/calendarioEscolar2026';
 
@@ -78,10 +80,19 @@ export default function App() {
     useState<UsuarioDirectivo | null>(null);
   const [modalLoginAbierto, setModalLoginAbierto] = useState<boolean>(false);
   const [modalPreviewAbierto, setModalPreviewAbierto] = useState<boolean>(false);
+  const [modalPublicacionAbierto, setModalPublicacionAbierto] = useState<boolean>(false);
   const [modalUsuariosAbierto, setModalUsuariosAbierto] = useState<boolean>(false);
 
   const [presencia, setPresencia] = useState<PresenciaActiva[]>([]);
   const [wsConectado, setWsConectado] = useState<boolean>(false);
+  const [notificacionEditor, setNotificacionEditor] = useState<{
+    id: string;
+    usuario: string;
+    seccion: string;
+    descripcion: string;
+    timestamp: string;
+  } | null>(null);
+  const ultimoHistorialIdRef = useRef<string | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const seccionActivaRef = useRef<string>('Boletín Oficial');
   const tokenRef = useRef<string | null>(null);
@@ -171,6 +182,16 @@ export default function App() {
             setBoletin((prev) =>
               prev.id === msg.boletin.id ? msg.boletin : prev
             );
+            if (msg.boletin.historialCambios && msg.boletin.historialCambios.length > 0) {
+              const ultimo = msg.boletin.historialCambios[0];
+              if (ultimo && ultimo.id !== ultimoHistorialIdRef.current) {
+                ultimoHistorialIdRef.current = ultimo.id;
+                setNotificacionEditor(ultimo);
+                setTimeout(() => {
+                  setNotificacionEditor((prev) => (prev?.id === ultimo.id ? null : prev));
+                }, 6000);
+              }
+            }
           } else if (msg.evento === 'boletin:clonado' && msg.boletin) {
             setBoletin(msg.boletin);
             cargarBoletinesServidor(msg.boletin.id);
@@ -550,15 +571,14 @@ export default function App() {
                 <span>{copiadoHeader ? 'Enlace copiado' : 'Copiar enlace'}</span>
               </button>
 
-              <a
-                href={`/api/public/boletin/${boletin.id}/html`}
-                target="_blank"
-                rel="noopener noreferrer"
+              <button
+                type="button"
+                onClick={() => setModalPublicacionAbierto(true)}
                 className="inline-flex items-center gap-1.5 px-3 py-1 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg shadow-2xs transition-colors whitespace-nowrap cursor-pointer"
               >
                 <ExternalLink className="w-3.5 h-3.5" />
                 <span>Publicar boletín</span>
-              </a>
+              </button>
             </div>
           </div>
         </div>
@@ -689,9 +709,9 @@ export default function App() {
 
               <button
                 type="button"
-                title="Zonas y Noti-Prácticas"
+                title="Notiprácticas"
                 onClick={() =>
-                  irASeccionEditor('practicas', 'Noti-Prácticas y Convivencia')
+                  irASeccionEditor('practicas', 'Notiprácticas')
                 }
                 className={`w-full flex items-center ${
                   sidebarColapsado ? 'justify-center px-2' : 'gap-3 px-3.5'
@@ -703,7 +723,7 @@ export default function App() {
               >
                 <ShieldCheck className="w-4 h-4 shrink-0" />
                 {!sidebarColapsado && (
-                  <span className="truncate">Zonas y Noti-Prácticas</span>
+                  <span className="truncate">Notiprácticas</span>
                 )}
               </button>
 
@@ -744,6 +764,26 @@ export default function App() {
                 <Clock className="w-4 h-4 shrink-0" />
                 {!sidebarColapsado && (
                   <span className="truncate">Horarios de Apoyo</span>
+                )}
+              </button>
+
+              <button
+                type="button"
+                title="Registro Histórico de Cambios"
+                onClick={() =>
+                  irASeccionEditor('historial', 'Registro Histórico de Cambios')
+                }
+                className={`w-full flex items-center ${
+                  sidebarColapsado ? 'justify-center px-2' : 'gap-3 px-3.5'
+                } py-2.5 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
+                  vistaActiva === 'editor' && seccionEditorInicial === 'historial'
+                    ? 'bg-[#007DC5] text-white font-bold shadow-xs'
+                    : 'text-slate-700 hover:bg-slate-100 hover:text-[#034EA2]'
+                }`}
+              >
+                <History className="w-4 h-4 shrink-0" />
+                {!sidebarColapsado && (
+                  <span className="truncate">Registro Histórico</span>
                 )}
               </button>
 
@@ -973,6 +1013,7 @@ export default function App() {
               usuarioActual={usuarioDirectivo}
               presencia={presencia}
               wsConectado={wsConectado}
+              notificacionEditor={notificacionEditor}
               onSolicitarLogin={() => setModalLoginAbierto(true)}
               onEjecutarOperacion={handleEjecutarOperacion}
               onClonarSemana={handleClonarSemana}
@@ -1000,6 +1041,24 @@ export default function App() {
         abierto={modalPreviewAbierto}
         onCerrar={() => setModalPreviewAbierto(false)}
         boletin={boletin}
+      />
+
+      <ModalPublicacionNube
+        abierto={modalPublicacionAbierto}
+        onCerrar={() => setModalPublicacionAbierto(false)}
+        boletin={boletin}
+        onAbrirPrevisualizacion={() => setModalPreviewAbierto(true)}
+        onSincronizarPublicacion={async () => {
+          if (usuarioDirectivo && tokenSesion) {
+            return handleEjecutarOperacion({
+              tipo: 'actualizar_encabezado',
+              datos: { estado: 'publicado' },
+              autor: usuarioDirectivo.nombre,
+            });
+          }
+          await cargarBoletinesServidor(boletin.id);
+          return true;
+        }}
       />
 
       <ModalAdministracionUsuarios

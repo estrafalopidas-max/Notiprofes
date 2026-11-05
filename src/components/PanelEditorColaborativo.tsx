@@ -1,19 +1,25 @@
 import React, { useState } from 'react';
 import {
   AlertTriangle,
+  Bell,
   CalendarPlus,
   Check,
+  ChevronDown,
+  ChevronUp,
   Clock,
   CopyPlus,
   FilePlus,
   FileSpreadsheet,
   FileText,
+  History,
   Link2,
+  MapPin,
   Pencil,
   Plus,
   RotateCcw,
   Sparkles,
   Trash2,
+  UserCheck,
   Users,
   X,
 } from 'lucide-react';
@@ -26,6 +32,7 @@ import {
   UsuarioDirectivo,
 } from '../types/notiprofes';
 import { validarActividadInput } from '../utils/boletinLogic';
+import { calcularFechaViernesSiguienteSemana } from '../utils/calendarioEscolar2026';
 import { DropdownPersonalizado } from './DropdownPersonalizado';
 
 interface PanelEditorColaborativoProps {
@@ -33,6 +40,13 @@ interface PanelEditorColaborativoProps {
   usuarioActual: UsuarioDirectivo | null;
   presencia: PresenciaActiva[];
   wsConectado: boolean;
+  notificacionEditor?: {
+    id: string;
+    usuario: string;
+    seccion: string;
+    descripcion: string;
+    timestamp: string;
+  } | null;
   onSolicitarLogin: () => void;
   onEjecutarOperacion: (op: OperacionBoletin) => Promise<boolean>;
   onClonarSemana: (datos: {
@@ -51,6 +65,7 @@ export type SeccionEditor =
   | 'largo_plazo'
   | 'practicas'
   | 'horarios'
+  | 'historial'
   | 'clonar';
 
 export const PanelEditorColaborativo: React.FC<PanelEditorColaborativoProps> = ({
@@ -58,6 +73,7 @@ export const PanelEditorColaborativo: React.FC<PanelEditorColaborativoProps> = (
   usuarioActual,
   presencia,
   wsConectado,
+  notificacionEditor,
   onSolicitarLogin,
   onEjecutarOperacion,
   onClonarSemana,
@@ -98,7 +114,7 @@ export const PanelEditorColaborativo: React.FC<PanelEditorColaborativoProps> = (
   const [fechaEventoLP, setFechaEventoLP] = useState('');
   const [descEventoLP, setDescEventoLP] = useState('');
   const [catEventoLP, setCatEventoLP] = useState<
-    'finalizacion' | 'proxima_actividad' | 'capacitacion' | 'institucional'
+    'finalizacion' | 'proxima_actividad'
   >('proxima_actividad');
   const [destacadoLP, setDestacadoLP] = useState(false);
 
@@ -117,11 +133,22 @@ export const PanelEditorColaborativo: React.FC<PanelEditorColaborativoProps> = (
   const [nuevaSemanaTexto, setNuevaSemanaTexto] = useState(
     'Semana del 9 de noviembre al 13 de noviembre de 2026.'
   );
-  const [nuevaFechaEmision, setNuevaFechaEmision] = useState('06/11/2026');
+  const [nuevaFechaEmision, setNuevaFechaEmision] = useState(() =>
+    calcularFechaViernesSiguienteSemana(boletin.dias)
+  );
   const [nuevaDescPeriodo, setNuevaDescPeriodo] = useState(
     'Programación de la UNDÉCIMA semana del TERCER periodo del año lectivo.'
   );
   const [conservarActividades, setConservarActividades] = useState(false);
+
+  const [polizaTitulo, setPolizaTitulo] = useState(boletin.polizaEscolarDoc?.titulo || '');
+  const [polizaUrl, setPolizaUrl] = useState(boletin.polizaEscolarDoc?.url || '');
+
+  const [frasePedagogicaEdit, setFrasePedagogicaEdit] = useState(boletin.frasePedagogica || '');
+  const [autorFraseEdit, setAutorFraseEdit] = useState(boletin.autorFrase || '');
+
+  const [diasColapsados, setDiasColapsados] = useState<Record<string, boolean>>({});
+  const [filtroDiaEditor, setFiltroDiaEditor] = useState<string>('todos');
 
   const notificarGuardado = (texto: string) => {
     setMensajeEstado(texto);
@@ -283,6 +310,58 @@ export const PanelEditorColaborativo: React.FC<PanelEditorColaborativoProps> = (
     }
   };
 
+  const handleActualizarPoliza = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setErrorValidacion(null);
+    if (!usuarioActual) {
+      onSolicitarLogin();
+      return;
+    }
+    if (!polizaTitulo.trim() || !polizaUrl.trim()) {
+      setErrorValidacion('Indique el título y la URL de la Póliza escolar oficial.');
+      return;
+    }
+
+    const exito = await onEjecutarOperacion({
+      tipo: 'actualizar_poliza',
+      poliza: {
+        titulo: polizaTitulo.trim(),
+        url: polizaUrl.trim(),
+      },
+      autor: usuarioActual.nombre,
+    });
+
+    if (exito) {
+      notificarGuardado('Póliza escolar oficial actualizada con éxito.');
+    }
+  };
+
+  const handleActualizarReflexion = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setErrorValidacion(null);
+    if (!usuarioActual) {
+      onSolicitarLogin();
+      return;
+    }
+    if (!frasePedagogicaEdit.trim()) {
+      setErrorValidacion('La reflexión pedagógica no puede estar vacía.');
+      return;
+    }
+
+    const exito = await onEjecutarOperacion({
+      tipo: 'actualizar_encabezado',
+      datos: {
+        frasePedagogica: frasePedagogicaEdit.trim(),
+        autorFrase: autorFraseEdit.trim(),
+      },
+      autor: usuarioActual.nombre,
+    });
+
+    if (exito) {
+      notificarGuardado('Reflexión pedagógica actualizada con éxito.');
+    }
+  };
+
   const handleAgregarEventoLP = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorValidacion(null);
@@ -429,6 +508,37 @@ export const PanelEditorColaborativo: React.FC<PanelEditorColaborativoProps> = (
 
   return (
     <div className="space-y-6">
+      {notificacionEditor && (
+        <div
+          role="region"
+          aria-label="Notificación de cambios en tiempo real"
+          className="bg-sky-900 border-2 border-sky-400 text-white rounded-2xl p-4 shadow-lg flex items-center justify-between gap-4 animate-in slide-in-from-top-2 duration-200"
+        >
+          <div className="flex items-center gap-3">
+            <div className="p-2 rounded-xl bg-sky-500/30 border border-sky-300/40 text-sky-200 shrink-0">
+              <Bell className="w-5 h-5 animate-bounce" />
+            </div>
+            <div>
+              <div className="text-xs font-bold text-sky-200 tracking-wide uppercase">
+                Actualización en vivo detectada ({notificacionEditor.timestamp})
+              </div>
+              <div className="text-sm font-semibold text-white mt-0.5">
+                <strong>{notificacionEditor.usuario}</strong> guardó cambios en la sección{' '}
+                <span className="underline decoration-sky-300">{notificacionEditor.seccion}</span>:{' '}
+                <span className="font-normal text-sky-100">{notificacionEditor.descripcion}</span>
+              </div>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => cambiarTab('historial', 'Registro Histórico de Cambios')}
+            className="px-3.5 py-1.5 text-xs font-bold bg-[#ED145B] hover:bg-[#d41050] text-white rounded-lg shadow-xs whitespace-nowrap shrink-0 transition-colors"
+          >
+            Ver en Historial
+          </button>
+        </div>
+      )}
+
       {/* Encabezado Ejecutivo de Colaboración Multi-Equipo */}
       <section
         aria-label="Estado de edición colaborativa en tiempo real"
@@ -527,238 +637,453 @@ export const PanelEditorColaborativo: React.FC<PanelEditorColaborativoProps> = (
       {/* SECCIÓN 1: PROGRAMACIÓN SEMANAL */}
       {seccion === 'semanal' && (
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-          <form
-            onSubmit={handleAgregarActividad}
-            className="lg:col-span-5 bg-white border border-slate-200/90 rounded-xl p-6 space-y-4"
-          >
-            <div className="border-b border-slate-100 pb-3">
-              <h2 className="text-base font-display font-bold text-slate-900 flex items-center gap-2">
-                <Plus className="w-4 h-4 text-blue-700" />
-                Registrar Actividad o Imprevisto Semanal
-              </h2>
-              <p className="text-xs text-slate-500 mt-0.5">
-                Se reflejará al instante en todos los equipos conectados y en el HTML público.
-              </p>
-            </div>
+          <div className="lg:col-span-5 space-y-6">
+            <form
+              onSubmit={handleAgregarActividad}
+              className="bg-white border border-slate-200/90 rounded-xl p-6 space-y-4"
+            >
+              <div className="border-b border-slate-100 pb-3">
+                <h2 className="text-base font-display font-bold text-slate-900 flex items-center gap-2">
+                  <Plus className="w-4 h-4 text-blue-700" />
+                  Registrar Actividad o Imprevisto Semanal
+                </h2>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Se reflejará al instante en todos los equipos conectados y en el HTML público.
+                </p>
+              </div>
 
-            <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-                Día de la semana:
-              </label>
-              <DropdownPersonalizado
-                modo="simple"
-                anchoCompleto
-                ariaLabel="Día de la semana"
-                icono={<Clock className="w-4 h-4" />}
-                etiquetaBoton={
-                  boletin.dias.find((d) => d.id === diaSeleccionado)
-                    ? `${boletin.dias.find((d) => d.id === diaSeleccionado)?.fechaTexto}${
-                        boletin.dias.find((d) => d.id === diaSeleccionado)?.esFestivo
-                          ? ' (Festivo)'
-                          : ''
-                      }`
-                    : 'Seleccionar día'
-                }
-                valorSeleccionado={diaSeleccionado}
-                onChange={(nuevoDia) => setDiaSeleccionado(nuevoDia)}
-                opciones={boletin.dias.map((d) => ({
-                  valor: d.id,
-                  etiqueta: `${d.fechaTexto}${d.esFestivo ? ' (Festivo)' : ''}`,
-                }))}
-              />
-            </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                  Día de la semana:
+                </label>
+                <DropdownPersonalizado
+                  modo="simple"
+                  anchoCompleto
+                  ariaLabel="Día de la semana"
+                  icono={<Clock className="w-4 h-4" />}
+                  etiquetaBoton={
+                    boletin.dias.find((d) => d.id === diaSeleccionado)
+                      ? `${boletin.dias.find((d) => d.id === diaSeleccionado)?.fechaTexto}${
+                          boletin.dias.find((d) => d.id === diaSeleccionado)?.esFestivo
+                            ? ' (Festivo)'
+                            : ''
+                        }`
+                      : 'Seleccionar día'
+                  }
+                  valorSeleccionado={diaSeleccionado}
+                  onChange={(nuevoDia) => setDiaSeleccionado(nuevoDia)}
+                  opciones={boletin.dias.map((d) => ({
+                    valor: d.id,
+                    etiqueta: `${d.fechaTexto}${d.esFestivo ? ' (Festivo)' : ''}`,
+                  }))}
+                />
+              </div>
 
-            <div>
-              <label
-                htmlFor="input-titulo-actividad"
-                className="block text-xs font-semibold text-slate-700 mb-1"
-              >
-                Actividad a desarrollar:
-              </label>
-              <textarea
-                id="input-titulo-actividad"
-                rows={2}
-                value={tituloAct}
-                onChange={(e) => setTituloAct(e.target.value)}
-                placeholder="Ej: Reunión extraordinaria de área de Matemáticas o Simulacro..."
-                className="w-full rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs sm:text-sm text-slate-800 focus:outline-none focus:border-[#007DC5] focus:ring-1 focus:ring-[#007DC5]/20 transition-all"
-              />
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
                 <label
-                  htmlFor="input-responsable-actividad"
+                  htmlFor="input-titulo-actividad"
                   className="block text-xs font-semibold text-slate-700 mb-1"
                 >
-                  Responsable(s):
+                  Actividad a desarrollar:
                 </label>
-                <input
-                  id="input-responsable-actividad"
-                  type="text"
-                  value={responsableAct}
-                  onChange={(e) => setResponsableAct(e.target.value)}
-                  placeholder="Ej: Coordinación Académica"
+                <textarea
+                  id="input-titulo-actividad"
+                  rows={2}
+                  value={tituloAct}
+                  onChange={(e) => setTituloAct(e.target.value)}
+                  placeholder="Ej: Reunión extraordinaria de área de Matemáticas o Simulacro..."
                   className="w-full rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs sm:text-sm text-slate-800 focus:outline-none focus:border-[#007DC5] focus:ring-1 focus:ring-[#007DC5]/20 transition-all"
                 />
               </div>
 
-              <div>
-                <label
-                  htmlFor="input-hora-actividad"
-                  className="block text-xs font-semibold text-slate-700 mb-1"
-                >
-                  Hora:
-                </label>
-                <input
-                  id="input-hora-actividad"
-                  type="text"
-                  value={horaAct}
-                  onChange={(e) => setHoraAct(e.target.value)}
-                  placeholder="Ej: 8:00 a.m. a 10:00 a.m."
-                  className="w-full rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs sm:text-sm font-mono-tabular text-slate-800 focus:outline-none focus:border-[#007DC5] focus:ring-1 focus:ring-[#007DC5]/20 transition-all"
-                />
-              </div>
-            </div>
-
-            <div>
-              <label
-                htmlFor="input-lugar-actividad"
-                className="block text-xs font-semibold text-slate-700 mb-1"
-              >
-                Lugar:
-              </label>
-              <input
-                id="input-lugar-actividad"
-                type="text"
-                value={lugarAct}
-                onChange={(e) => setLugarAct(e.target.value)}
-                placeholder="Ej: Auditorio / Biblioteca / Rectoría"
-                className="w-full rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs sm:text-sm text-slate-800 focus:outline-none focus:border-[#007DC5] focus:ring-1 focus:ring-[#007DC5]/20 transition-all"
-              />
-            </div>
-
-            <button
-              type="submit"
-              className="w-full py-2.5 px-4 text-xs font-semibold text-white bg-blue-700 hover:bg-blue-600 rounded-lg transition-colors mt-3"
-            >
-              Guardar y Publicar Actividad en el Boletín
-            </button>
-          </form>
-
-          <div className="lg:col-span-7 space-y-4">
-            {boletin.dias.map((dia) => (
-              <div
-                key={dia.id}
-                className="bg-white border border-slate-200/90 rounded-xl p-5 space-y-3"
-              >
-                <div className="flex flex-wrap items-center justify-between gap-2 pb-3 border-b border-slate-100">
-                  <div>
-                    <h3 className="text-sm font-display font-bold text-slate-900 uppercase">
-                      {dia.fechaTexto}
-                    </h3>
-                    <div className="text-xs text-slate-500">
-                      {dia.esFestivo
-                        ? 'Día marcado como FESTIVO'
-                        : `${dia.actividades.length} actividad(es) programada(s)`}
-                      {dia.notaHorario ? ` · ${dia.notaHorario}` : ''}
-                    </div>
-                  </div>
-
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (!usuarioActual) {
-                        onSolicitarLogin();
-                        return;
-                      }
-                      onEjecutarOperacion({
-                        tipo: 'alternar_festivo_dia',
-                        diaId: dia.id,
-                        esFestivo: !dia.esFestivo,
-                        notaHorario: !dia.esFestivo ? 'FESTIVO' : '',
-                        autor: usuarioActual.nombre,
-                      });
-                    }}
-                    className="px-3 py-1.5 text-xs font-medium rounded-lg border border-slate-200 text-slate-700 hover:bg-slate-50"
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label
+                    htmlFor="input-responsable-actividad"
+                    className="block text-xs font-semibold text-slate-700 mb-1"
                   >
-                    {dia.esFestivo ? 'Quitar marca Festivo' : 'Marcar como Festivo'}
-                  </button>
+                    Responsable(s):
+                  </label>
+                  <input
+                    id="input-responsable-actividad"
+                    type="text"
+                    value={responsableAct}
+                    onChange={(e) => setResponsableAct(e.target.value)}
+                    placeholder="Ej: Coordinación Académica"
+                    className="w-full rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs sm:text-sm text-slate-800 focus:outline-none focus:border-[#007DC5] focus:ring-1 focus:ring-[#007DC5]/20 transition-all"
+                  />
                 </div>
 
-                {dia.actividades.length === 0 ? (
-                  <p className="text-xs text-slate-500 italic py-2">
-                    {dia.esFestivo
-                      ? 'Día festivo sin actividades académicas.'
-                      : 'No hay actividades registradas para este día.'}
-                  </p>
-                ) : (
-                  <div className="divide-y divide-slate-100">
-                    {dia.actividades.map((act) => (
-                      <div
-                        key={act.id}
-                        className={`p-3 rounded-xl flex flex-col sm:flex-row sm:items-start justify-between gap-3 transition-all my-1 ${
-                          act.reprogramada
-                            ? 'bg-amber-50/90 border-l-4 border-l-amber-500 border border-amber-200/90 shadow-2xs'
-                            : 'py-3 border-b border-slate-100 last:border-b-0'
+                <div>
+                  <label
+                    htmlFor="input-hora-actividad"
+                    className="block text-xs font-semibold text-slate-700 mb-1"
+                  >
+                    Hora:
+                  </label>
+                  <input
+                    id="input-hora-actividad"
+                    type="text"
+                    value={horaAct}
+                    onChange={(e) => setHoraAct(e.target.value)}
+                    placeholder="Ej: 8:00 a.m. a 10:00 a.m."
+                    className="w-full rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs sm:text-sm font-mono-tabular text-slate-800 focus:outline-none focus:border-[#007DC5] focus:ring-1 focus:ring-[#007DC5]/20 transition-all"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label
+                  htmlFor="input-lugar-actividad"
+                  className="block text-xs font-semibold text-slate-700 mb-1"
+                >
+                  Lugar:
+                </label>
+                <input
+                  id="input-lugar-actividad"
+                  type="text"
+                  value={lugarAct}
+                  onChange={(e) => setLugarAct(e.target.value)}
+                  placeholder="Ej: Auditorio / Biblioteca / Rectoría"
+                  className="w-full rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs sm:text-sm text-slate-800 focus:outline-none focus:border-[#007DC5] focus:ring-1 focus:ring-[#007DC5]/20 transition-all"
+                />
+              </div>
+
+              <button
+                type="submit"
+                className="w-full py-2.5 px-4 text-xs font-semibold text-white bg-[#007DC5] hover:bg-[#034EA2] rounded-lg transition-colors mt-3"
+              >
+                Guardar y Publicar Actividad en el Boletín
+              </button>
+            </form>
+
+            <div className="bg-white border border-slate-200/90 rounded-xl p-6 space-y-4">
+              <div className="border-b border-slate-100 pb-3">
+                <h2 className="text-base font-display font-bold text-slate-900 flex items-center gap-2">
+                  <Sparkles className="w-4 h-4 text-[#ED145B]" />
+                  Reflexión Pedagógica Semanal
+                </h2>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Cambie la cita o mensaje inspirador que aparece destacado en el boletín.
+                </p>
+              </div>
+
+              <form onSubmit={handleActualizarReflexion} className="space-y-3">
+                <div>
+                  <label htmlFor="input-frase-pedagogica" className="block text-xs font-semibold text-slate-700 mb-1">
+                    Cita / Reflexión:
+                  </label>
+                  <textarea
+                    id="input-frase-pedagogica"
+                    rows={3}
+                    value={frasePedagogicaEdit}
+                    onChange={(e) => setFrasePedagogicaEdit(e.target.value)}
+                    placeholder="Escriba la reflexión pedagógica..."
+                    className="w-full rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs sm:text-sm text-slate-800 focus:outline-none focus:border-[#007DC5] focus:ring-1 focus:ring-[#007DC5]/20 transition-all"
+                    required
+                  />
+                </div>
+
+                <div>
+                  <label htmlFor="input-autor-frase" className="block text-xs font-semibold text-slate-700 mb-1">
+                    Autor / Referencia:
+                  </label>
+                  <input
+                    id="input-autor-frase"
+                    type="text"
+                    value={autorFraseEdit}
+                    onChange={(e) => setAutorFraseEdit(e.target.value)}
+                    placeholder="Ej: Equipo Directivo / Paulo Freire"
+                    className="w-full rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs sm:text-sm text-slate-800 focus:outline-none focus:border-[#007DC5] focus:ring-1 focus:ring-[#007DC5]/20 transition-all"
+                  />
+                </div>
+
+                <button
+                  type="submit"
+                  className="w-full py-2.5 px-4 text-xs font-semibold text-white bg-[#007DC5] hover:bg-[#034EA2] rounded-lg transition-colors"
+                >
+                  Actualizar Reflexión Pedagógica
+                </button>
+              </form>
+            </div>
+          </div>
+
+          <div className="lg:col-span-7 space-y-4">
+            {/* Barra superior de filtrado rápido y control de acordeón por día */}
+            <div className="bg-white border border-slate-200/90 rounded-xl p-3.5 flex flex-wrap items-center justify-between gap-2 shadow-2xs">
+              <div className="flex flex-wrap items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => setFiltroDiaEditor('todos')}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                    filtroDiaEditor === 'todos'
+                      ? 'bg-[#007DC5] text-white shadow-xs'
+                      : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                  }`}
+                >
+                  Todos ({boletin.dias.length})
+                </button>
+                {boletin.dias.map((d) => {
+                  const nombreCorto = d.fechaTexto.split(' ')[0];
+                  return (
+                    <button
+                      key={d.id}
+                      type="button"
+                      onClick={() => setFiltroDiaEditor(d.id)}
+                      className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer flex items-center gap-1.5 ${
+                        filtroDiaEditor === d.id
+                          ? 'bg-[#007DC5] text-white font-bold shadow-xs'
+                          : 'bg-slate-50 text-slate-700 border border-slate-200/80 hover:bg-sky-50 hover:text-[#034EA2]'
+                      }`}
+                    >
+                      <span>{nombreCorto}</span>
+                      <span
+                        className={`px-1.5 py-0.2 rounded-full text-[10px] font-mono-tabular font-bold ${
+                          filtroDiaEditor === d.id
+                            ? 'bg-white/25 text-white'
+                            : d.esFestivo
+                              ? 'bg-rose-100 text-[#ED145B]'
+                              : 'bg-sky-100 text-[#034EA2]'
                         }`}
                       >
-                        <div className="space-y-1">
-                          <div className="text-sm font-semibold text-slate-900">
-                            {act.titulo}
-                            {act.reprogramada && act.notaReprogramacion && (
-                              <span className="ml-2 inline-flex items-center gap-1 bg-amber-100 border border-amber-300 text-amber-950 text-xs font-bold px-2 py-0.5 rounded-md">
-                                <AlertTriangle className="w-3.5 h-3.5 text-amber-700 shrink-0" />
-                                {act.notaReprogramacion}
+                        {d.esFestivo ? 'F' : d.actividades.length}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+
+              <button
+                type="button"
+                onClick={() => {
+                  const todosColapsados = boletin.dias.every((d) => diasColapsados[d.id]);
+                  const nuevoEstado: Record<string, boolean> = {};
+                  boletin.dias.forEach((d) => {
+                    nuevoEstado[d.id] = !todosColapsados;
+                  });
+                  setDiasColapsados(nuevoEstado);
+                }}
+                className="px-2.5 py-1 text-[11px] font-semibold text-[#034EA2] hover:bg-sky-50 rounded-lg border border-sky-200/80 transition-colors cursor-pointer"
+              >
+                {boletin.dias.every((d) => diasColapsados[d.id])
+                  ? 'Expandir todos'
+                  : 'Contraer todos'}
+              </button>
+            </div>
+
+            {boletin.dias
+              .filter((dia) => filtroDiaEditor === 'todos' || dia.id === filtroDiaEditor)
+              .map((dia) => {
+                const estaColapsado = Boolean(diasColapsados[dia.id]);
+                return (
+                  <div
+                    key={dia.id}
+                    className={`bg-white rounded-2xl overflow-hidden border transition-all shadow-xs ${
+                      dia.esFestivo
+                        ? 'border-rose-200 border-l-4 border-l-[#ED145B]'
+                        : 'border-slate-200/90 border-l-4 border-l-[#007DC5]'
+                    }`}
+                  >
+                    {/* Cabecera del día con banda de identidad visual y botón de colapso */}
+                    <div
+                      className={`px-5 py-3.5 flex flex-wrap items-center justify-between gap-3 border-b ${
+                        dia.esFestivo
+                          ? 'bg-linear-to-r from-rose-50 via-rose-50/50 to-white border-rose-100'
+                          : 'bg-linear-to-r from-[#034EA2]/10 via-sky-50/60 to-white border-slate-100'
+                      }`}
+                    >
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setDiasColapsados((prev) => ({
+                            ...prev,
+                            [dia.id]: !prev[dia.id],
+                          }))
+                        }
+                        className="flex items-center gap-3 text-left cursor-pointer group"
+                      >
+                        <span
+                          className={`w-8 h-8 rounded-xl font-mono-tabular font-extrabold text-xs inline-flex items-center justify-center shadow-2xs shrink-0 ${
+                            dia.esFestivo
+                              ? 'bg-[#ED145B] text-white'
+                              : 'bg-[#034EA2] text-white'
+                          }`}
+                        >
+                          {dia.esFestivo
+                            ? 'F'
+                            : String(dia.actividades.length).padStart(2, '0')}
+                        </span>
+                        <div>
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <h3 className="text-sm sm:text-base font-display font-extrabold text-[#0F172A] uppercase group-hover:text-[#034EA2] transition-colors">
+                              {dia.fechaTexto}
+                            </h3>
+                            {dia.esFestivo && (
+                              <span className="px-2 py-0.5 text-[10px] font-extrabold uppercase rounded-md bg-[#ED145B] text-white">
+                                Festivo Oficial
                               </span>
                             )}
                           </div>
-                          <div className="text-xs text-slate-500 flex flex-wrap items-center gap-1.5">
-                            <span>
-                              <strong className="text-slate-700">Responsable:</strong>{' '}
-                              {act.responsable}
-                            </span>
-                            <span aria-hidden="true">·</span>
-                            <span className="font-mono-tabular">
-                              <strong className="text-slate-700">Hora:</strong> {act.hora}
-                            </span>
-                            <span aria-hidden="true">·</span>
-                            <span>
-                              <strong className="text-slate-700">Lugar:</strong> {act.lugar}
-                            </span>
+                          <div className="text-xs text-slate-500 font-medium">
+                            {dia.esFestivo
+                              ? 'Día marcado como FESTIVO — Sin jornada académica'
+                              : `${dia.actividades.length} actividad(es) programada(s)`}
+                            {dia.notaHorario && !dia.esFestivo ? ` · ${dia.notaHorario}` : ''}
                           </div>
                         </div>
+                      </button>
 
-                        <div className="flex items-center gap-2 shrink-0">
-                          <button
-                            type="button"
-                            onClick={() => abrirEdicionActividad(dia.id, act)}
-                            title="Editar datos o reprogramar esta actividad"
-                            className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg border transition-all ${
-                              act.reprogramada
-                                ? 'bg-amber-100 border-amber-400 text-amber-950 hover:bg-amber-200'
-                                : 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-[#007DC5]/10 hover:border-[#007DC5]/30 hover:text-[#007DC5]'
-                            }`}
-                          >
-                            <Pencil className="w-3.5 h-3.5" />
-                            {act.reprogramada ? 'Reprogramada / Editar' : 'Reprogramar / Editar'}
-                          </button>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (!usuarioActual) {
+                              onSolicitarLogin();
+                              return;
+                            }
+                            onEjecutarOperacion({
+                              tipo: 'alternar_festivo_dia',
+                              diaId: dia.id,
+                              esFestivo: !dia.esFestivo,
+                              notaHorario: !dia.esFestivo ? 'FESTIVO' : '',
+                              autor: usuarioActual.nombre,
+                            });
+                          }}
+                          className={`px-3 py-1.5 text-xs font-semibold rounded-lg border transition-colors cursor-pointer ${
+                            dia.esFestivo
+                              ? 'border-rose-300 bg-white text-[#ED145B] hover:bg-rose-50'
+                              : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
+                          }`}
+                        >
+                          {dia.esFestivo ? 'Quitar marca Festivo' : 'Marcar como Festivo'}
+                        </button>
 
-                          <button
-                            type="button"
-                            onClick={() => handleEliminarActividad(dia.id, act.id)}
-                            aria-label={`Eliminar actividad ${act.titulo}`}
-                            className="p-1.5 text-slate-400 hover:text-red-600 rounded-lg hover:bg-red-50"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        </div>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setDiasColapsados((prev) => ({
+                              ...prev,
+                              [dia.id]: !prev[dia.id],
+                            }))
+                          }
+                          aria-label={estaColapsado ? 'Expandir día' : 'Contraer día'}
+                          className="p-1.5 rounded-lg border border-slate-200/80 bg-white text-slate-500 hover:text-[#034EA2] hover:bg-sky-50 transition-colors cursor-pointer"
+                        >
+                          {estaColapsado ? (
+                            <ChevronDown className="w-4 h-4" />
+                          ) : (
+                            <ChevronUp className="w-4 h-4" />
+                          )}
+                        </button>
                       </div>
-                    ))}
+                    </div>
+
+                    {/* Cuerpo colapsable con línea de tiempo numerada y píldoras de metadatos */}
+                    {!estaColapsado && (
+                      <div className="p-4 sm:p-5">
+                        {dia.actividades.length === 0 ? (
+                          <div className="rounded-xl bg-slate-50/80 border border-dashed border-slate-200 px-4 py-3.5 text-xs text-slate-500 italic">
+                            {dia.esFestivo
+                              ? 'Día festivo sin actividades académicas.'
+                              : 'No hay actividades registradas para este día.'}
+                          </div>
+                        ) : (
+                          <div className="relative pl-4 sm:pl-5 border-l-2 border-sky-200/90 space-y-3.5">
+                            {dia.actividades.map((act, idx) => (
+                              <div
+                                key={act.id}
+                                className={`relative rounded-xl p-3.5 sm:p-4 border transition-all flex flex-col sm:flex-row sm:items-start justify-between gap-3.5 ${
+                                  act.reprogramada
+                                    ? 'bg-amber-50/90 border-l-4 border-l-amber-500 border-amber-200/90 shadow-2xs'
+                                    : 'bg-slate-50/60 hover:bg-white border-slate-200/80 hover:border-sky-200 hover:shadow-2xs'
+                                }`}
+                              >
+                                {/* Indicador numérico en la línea de tiempo */}
+                                <span
+                                  aria-hidden="true"
+                                  className={`absolute -left-[25px] sm:-left-[29px] top-4 w-5 h-5 rounded-full text-[10px] font-mono-tabular font-extrabold flex items-center justify-center ring-4 ring-white ${
+                                    act.reprogramada
+                                      ? 'bg-amber-500 text-white'
+                                      : 'bg-[#007DC5] text-white'
+                                  }`}
+                                >
+                                  {String(idx + 1).padStart(2, '0')}
+                                </span>
+
+                                <div className="space-y-2.5 flex-1 min-w-0">
+                                  {/* Píldora superior de Hora + Estado Reprogramado */}
+                                  <div className="flex flex-wrap items-center gap-2">
+                                    <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-lg bg-sky-50 border border-sky-200/90 text-[#034EA2] font-mono-tabular text-xs font-bold">
+                                      <Clock className="w-3.5 h-3.5 text-[#007DC5] shrink-0" />
+                                      {act.hora}
+                                    </span>
+
+                                    {act.reprogramada && act.notaReprogramacion && (
+                                      <span className="inline-flex items-center gap-1 bg-amber-100 border border-amber-300 text-amber-950 text-xs font-bold px-2.5 py-0.5 rounded-lg">
+                                        <AlertTriangle className="w-3.5 h-3.5 text-amber-700 shrink-0" />
+                                        {act.notaReprogramacion}
+                                      </span>
+                                    )}
+                                  </div>
+
+                                  {/* Título de la actividad */}
+                                  <div className="text-sm font-bold text-[#0F172A] leading-snug">
+                                    {act.titulo}
+                                  </div>
+
+                                  {/* Píldoras de Metadatos: Responsable y Lugar */}
+                                  <div className="flex flex-wrap items-center gap-2 pt-0.5">
+                                    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-white border border-slate-200/90 text-slate-700 text-xs font-medium shadow-2xs">
+                                      <UserCheck className="w-3.5 h-3.5 text-[#007DC5] shrink-0" />
+                                      <strong className="text-slate-900 font-semibold">
+                                        Resp:
+                                      </strong>{' '}
+                                      {act.responsable}
+                                    </span>
+
+                                    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-50/70 border border-emerald-200/80 text-emerald-950 text-xs font-medium">
+                                      <MapPin className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                                      <strong className="text-emerald-900 font-semibold">
+                                        Lugar:
+                                      </strong>{' '}
+                                      {act.lugar}
+                                    </span>
+                                  </div>
+                                </div>
+
+                                <div className="flex items-center gap-2 shrink-0 self-end sm:self-start">
+                                  <button
+                                    type="button"
+                                    onClick={() => abrirEdicionActividad(dia.id, act)}
+                                    title="Editar datos o reprogramar esta actividad"
+                                    className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg border transition-all cursor-pointer ${
+                                      act.reprogramada
+                                        ? 'bg-amber-100 border-amber-400 text-amber-950 hover:bg-amber-200'
+                                        : 'bg-white border-slate-200 text-slate-700 hover:bg-[#007DC5]/10 hover:border-[#007DC5]/30 hover:text-[#007DC5]'
+                                    }`}
+                                  >
+                                    <Pencil className="w-3.5 h-3.5" />
+                                    {act.reprogramada ? 'Reprogramada / Editar' : 'Reprogramar / Editar'}
+                                  </button>
+
+                                  <button
+                                    type="button"
+                                    onClick={() => handleEliminarActividad(dia.id, act.id)}
+                                    aria-label={`Eliminar actividad ${act.titulo}`}
+                                    className="p-1.5 text-slate-400 hover:text-red-600 rounded-lg hover:bg-red-50 transition-colors cursor-pointer"
+                                  >
+                                    <Trash2 className="w-4 h-4" />
+                                  </button>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
-                )}
-              </div>
-            ))}
+                );
+              })}
           </div>
         </div>
       )}
@@ -865,7 +1190,7 @@ export const PanelEditorColaborativo: React.FC<PanelEditorColaborativoProps> = (
 
             <button
               type="submit"
-              className="w-full py-2.5 px-4 text-xs font-semibold text-white bg-blue-700 hover:bg-blue-600 rounded-lg"
+              className="w-full py-2.5 px-4 text-xs font-semibold text-white bg-[#007DC5] hover:bg-[#034EA2] rounded-lg"
             >
               Agregar Documento al Boletín
             </button>
@@ -927,6 +1252,59 @@ export const PanelEditorColaborativo: React.FC<PanelEditorColaborativoProps> = (
               ))}
             </div>
           </div>
+
+          <div className="lg:col-span-12 bg-white border border-slate-200/90 rounded-xl p-6 space-y-4">
+            <div className="border-b border-slate-100 pb-3">
+              <h2 className="text-base font-display font-bold text-slate-900 flex items-center gap-2">
+                <FileText className="w-4 h-4 text-[#ED145B]" />
+                Actualizar Póliza Escolar Oficial (Vigencia Anual)
+              </h2>
+              <p className="text-xs text-slate-500 mt-0.5">
+                Modifique el título y enlace de la póliza de seguros escolares vigente para los estudiantes.
+              </p>
+            </div>
+
+            <form onSubmit={handleActualizarPoliza} className="grid grid-cols-1 md:grid-cols-12 gap-4 items-end">
+              <div className="md:col-span-5">
+                <label htmlFor="poliza-titulo" className="block text-xs font-semibold text-slate-700 mb-1">
+                  Título de la Póliza:
+                </label>
+                <input
+                  id="poliza-titulo"
+                  type="text"
+                  value={polizaTitulo}
+                  onChange={(e) => setPolizaTitulo(e.target.value)}
+                  placeholder="Ej: Circular 2026 Póliza Escolar.pdf"
+                  className="w-full rounded-lg border border-slate-300 bg-slate-50 px-3 py-2 text-sm text-slate-900"
+                  required
+                />
+              </div>
+
+              <div className="md:col-span-5">
+                <label htmlFor="poliza-url" className="block text-xs font-semibold text-slate-700 mb-1">
+                  URL / Google Drive de la Póliza:
+                </label>
+                <input
+                  id="poliza-url"
+                  type="text"
+                  value={polizaUrl}
+                  onChange={(e) => setPolizaUrl(e.target.value)}
+                  placeholder="Ej: https://drive.google.com/..."
+                  className="w-full rounded-lg border border-slate-300 bg-slate-50 px-3 py-2 text-sm font-mono-tabular text-slate-900"
+                  required
+                />
+              </div>
+
+              <div className="md:col-span-2">
+                <button
+                  type="submit"
+                  className="w-full py-2 px-4 text-xs font-semibold text-white bg-[#007DC5] hover:bg-[#034EA2] rounded-lg shadow-xs transition-colors"
+                >
+                  Guardar Póliza
+                </button>
+              </div>
+            </form>
+          </div>
         </div>
       )}
 
@@ -959,11 +1337,7 @@ export const PanelEditorColaborativo: React.FC<PanelEditorColaborativoProps> = (
                 etiquetaBoton={
                   catEventoLP === 'finalizacion'
                     ? 'Proyección de Calendario de Finalización'
-                    : catEventoLP === 'proxima_actividad'
-                      ? 'Próximas Actividades (Sección Inferior)'
-                      : catEventoLP === 'capacitacion'
-                        ? 'Capacitaciones / Icontec ISO 21001'
-                        : 'Auditoría / Evento Institucional'
+                    : 'Próximas Actividades (Sección Inferior)'
                 }
                 valorSeleccionado={catEventoLP}
                 onChange={(val) =>
@@ -971,8 +1345,6 @@ export const PanelEditorColaborativo: React.FC<PanelEditorColaborativoProps> = (
                     val as
                       | 'finalizacion'
                       | 'proxima_actividad'
-                      | 'capacitacion'
-                      | 'institucional'
                   )
                 }
                 opciones={[
@@ -983,14 +1355,6 @@ export const PanelEditorColaborativo: React.FC<PanelEditorColaborativoProps> = (
                   {
                     valor: 'proxima_actividad',
                     etiqueta: 'Próximas Actividades (Sección Inferior)',
-                  },
-                  {
-                    valor: 'capacitacion',
-                    etiqueta: 'Capacitaciones / Icontec ISO 21001',
-                  },
-                  {
-                    valor: 'institucional',
-                    etiqueta: 'Auditoría / Evento Institucional',
                   },
                 ]}
               />
@@ -1042,7 +1406,7 @@ export const PanelEditorColaborativo: React.FC<PanelEditorColaborativoProps> = (
 
             <button
               type="submit"
-              className="w-full py-2.5 px-4 text-xs font-semibold text-white bg-blue-700 hover:bg-blue-600 rounded-lg"
+              className="w-full py-2.5 px-4 text-xs font-semibold text-white bg-[#007DC5] hover:bg-[#034EA2] rounded-lg"
             >
               Guardar en Proyección a Largo Plazo
             </button>
@@ -1140,7 +1504,7 @@ export const PanelEditorColaborativo: React.FC<PanelEditorColaborativoProps> = (
               </div>
               <button
                 type="submit"
-                className="px-4 py-2 text-xs font-semibold text-white bg-blue-700 hover:bg-blue-600 rounded-lg"
+                className="px-4 py-2 text-xs font-semibold text-white bg-[#007DC5] hover:bg-[#034EA2] rounded-lg"
               >
                 Agregar Reconocimiento Docente
               </button>
@@ -1366,7 +1730,7 @@ export const PanelEditorColaborativo: React.FC<PanelEditorColaborativoProps> = (
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-1.5 text-xs font-semibold rounded-lg bg-blue-700 text-white"
+                  className="px-4 py-1.5 text-xs font-semibold rounded-lg bg-[#007DC5] hover:bg-[#034EA2] text-white transition-colors"
                 >
                   Guardar Horario
                 </button>
@@ -1425,11 +1789,7 @@ export const PanelEditorColaborativo: React.FC<PanelEditorColaborativoProps> = (
               Generar Boletín de la Siguiente Semana (N° {boletin.numero + 1})
             </h2>
             <p className="text-xs text-slate-600 mt-1 leading-relaxed">
-              Esta herramienta crea el nuevo boletín semanal conservando automáticamente los{' '}
-              <strong>documentos permanentes</strong>, el{' '}
-              <strong>calendario de finalización a largo plazo</strong>, los{' '}
-              <strong>horarios del personal de apoyo</strong> y las{' '}
-              <strong>firmas directivas</strong>.
+              Crea el boletín de la siguiente semana con la fecha de emisión por defecto establecida en el <strong>viernes</strong>. Puede <strong>previsualizar</strong> el resultado en cualquier momento sin afectar la semana anterior; la actualización en vivo se activará a partir de las 18:00 horas tras presionar publicar.
             </p>
           </div>
 
@@ -1497,7 +1857,7 @@ export const PanelEditorColaborativo: React.FC<PanelEditorColaborativoProps> = (
             <div className="pt-2 flex items-center gap-3">
               <button
                 type="submit"
-                className="px-5 py-2.5 text-xs font-semibold text-white bg-blue-700 hover:bg-blue-600 rounded-lg shadow-2xs transition-colors"
+                className="px-5 py-2.5 text-xs font-semibold text-white bg-[#007DC5] hover:bg-[#034EA2] rounded-lg shadow-2xs transition-colors"
               >
                 Crear y Activar NotiProfes N° {boletin.numero + 1}
               </button>
@@ -1510,6 +1870,69 @@ export const PanelEditorColaborativo: React.FC<PanelEditorColaborativoProps> = (
               </button>
             </div>
           </form>
+        </div>
+      )}
+
+      {/* SECCIÓN REGISTRO HISTÓRICO DE CAMBIOS */}
+      {seccion === 'historial' && (
+        <div className="bg-white border border-slate-200/90 rounded-2xl p-6 sm:p-8 space-y-6 shadow-xs">
+          <div className="border-b border-slate-100 pb-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div>
+              <h2 className="text-lg font-display font-bold text-slate-900 flex items-center gap-2">
+                <History className="w-5 h-5 text-[#034EA2]" />
+                Registro Histórico de Ediciones y Cambios
+              </h2>
+              <p className="text-xs text-slate-500 mt-1">
+                Auditoría en tiempo real de cada modificación, usuario responsable, sección afectada y marca de tiempo.
+              </p>
+            </div>
+            <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-sky-50 text-[#034EA2] text-xs font-semibold">
+              <span>Total registros: {boletin.historialCambios?.length || 0}</span>
+            </div>
+          </div>
+
+          {!boletin.historialCambios || boletin.historialCambios.length === 0 ? (
+            <div className="py-12 text-center text-slate-400 text-xs italic">
+              No hay registros de cambios en el historial de esta edición todavía.
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full border-collapse text-xs">
+                <thead>
+                  <tr className="bg-slate-50 border-b border-slate-200 text-slate-700">
+                    <th className="p-3 text-left font-bold">Marca de Tiempo</th>
+                    <th className="p-3 text-left font-bold">Usuario / Cargo</th>
+                    <th className="p-3 text-left font-bold">Sección</th>
+                    <th className="p-3 text-left font-bold">Acción</th>
+                    <th className="p-3 text-left font-bold">Descripción del Cambio</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {boletin.historialCambios.map((h) => (
+                    <tr key={h.id} className="hover:bg-slate-50/70 transition-colors">
+                      <td className="p-3 font-mono-tabular font-semibold text-slate-600 whitespace-nowrap">
+                        {h.timestamp}
+                      </td>
+                      <td className="p-3 font-semibold text-[#0F172A] whitespace-nowrap">
+                        {h.usuario}
+                      </td>
+                      <td className="p-3 text-[#007DC5] font-semibold whitespace-nowrap">
+                        {h.seccion}
+                      </td>
+                      <td className="p-3">
+                        <span className="inline-block px-2.5 py-0.5 rounded-md text-[11px] font-bold bg-sky-50 text-[#034EA2] border border-sky-200">
+                          {h.accion}
+                        </span>
+                      </td>
+                      <td className="p-3 text-slate-700 font-medium leading-relaxed">
+                        {h.descripcion}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
       )}
 
@@ -1633,7 +2056,7 @@ export const PanelEditorColaborativo: React.FC<PanelEditorColaborativoProps> = (
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-2 text-xs font-semibold text-white bg-blue-700 hover:bg-blue-600 rounded-lg shadow-xs transition-colors"
+                  className="px-4 py-2 text-xs font-semibold text-white bg-[#007DC5] hover:bg-[#034EA2] rounded-lg shadow-xs transition-colors"
                 >
                   Guardar Cambios
                 </button>

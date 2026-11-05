@@ -44,7 +44,7 @@ export interface EventoLargoPlazo {
   id: string;
   fechaTexto: string;
   descripcion: string;
-  categoria: 'finalizacion' | 'proxima_actividad' | 'capacitacion' | 'institucional';
+  categoria: 'finalizacion' | 'proxima_actividad';
   detalleAdicional?: string;
   destacado?: boolean;
 }
@@ -78,6 +78,15 @@ export interface FirmaDirectiva {
   cargo: string;
 }
 
+export interface RegistroHistorial {
+  id: string;
+  timestamp: string;
+  usuario: string;
+  seccion: string;
+  accion: string;
+  descripcion: string;
+}
+
 export interface BoletinSemanal {
   id: string;
   numero: number;
@@ -107,6 +116,7 @@ export interface BoletinSemanal {
   suspensiones: SuspensionEstudiante[];
   horariosApoyo: HorarioPersonalApoyo[];
   firmas: FirmaDirectiva[];
+  historialCambios: RegistroHistorial[];
 }
 
 export type RolUsuario = 'administrador' | 'editor';
@@ -239,5 +249,10 @@ export type OperacionBoletin =
           | 'estado'
         >
       >;
+      autor: string;
+    }
+  | {
+      tipo: 'actualizar_poliza';
+      poliza: { titulo: string; url: string };
       autor: string;
     };

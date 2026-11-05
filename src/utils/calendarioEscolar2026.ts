@@ -630,3 +630,18 @@ export function generarDiasSiguienteSemanaConFestivos(
 
   return { diasNuevos, semanaTextoNuevo };
 }
+
+/**
+ * Calcula la fecha de emisión por defecto (Viernes) para la siguiente semana.
+ */
+export function calcularFechaViernesSiguienteSemana(diasActuales: DiaProgramacion[]): string {
+  const lunesActual = diasActuales.length > 0 ? parsearDiaYMes(diasActuales[0].fechaTexto) : null;
+  const baseDate = lunesActual
+    ? new Date(Date.UTC(2026, lunesActual.mesIndex, lunesActual.dia + 7))
+    : new Date(Date.UTC(2026, 10, 9));
+  const viernesDate = new Date(baseDate.getTime() + 4 * 86400000);
+  const dd = String(viernesDate.getUTCDate()).padStart(2, '0');
+  const mm = String(viernesDate.getUTCMonth() + 1).padStart(2, '0');
+  const yyyy = viernesDate.getUTCFullYear();
+  return `${dd}/${mm}/${yyyy}`;
+}

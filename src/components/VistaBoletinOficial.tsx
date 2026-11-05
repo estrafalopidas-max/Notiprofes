@@ -4,6 +4,8 @@ import {
   Award,
   BookOpen,
   Calendar,
+  ChevronDown,
+  ChevronUp,
   Clock,
   ExternalLink,
   FileSpreadsheet,
@@ -53,6 +55,7 @@ export const VistaBoletinOficial: React.FC<VistaBoletinOficialProps> = ({
   const [busqueda, setBusqueda] = useState('');
   const [diaId, setDiaId] = useState('todos');
   const [modoVista, setModoVista] = useState<'ejecutiva' | 'tabla'>('ejecutiva');
+  const [diasColapsados, setDiasColapsados] = useState<Record<string, boolean>>({});
 
   // Detecta el día actual de la semana (Lunes a Viernes) para activarlo en la distribución semanal
   const diaActualId = useMemo(() => {
@@ -588,24 +591,25 @@ export const VistaBoletinOficial: React.FC<VistaBoletinOficialProps> = ({
             </button>
           </div>
         ) : modoVista === 'ejecutiva' ? (
-          /* VISTA GRÁFICA EJECUTIVA POR DÍA CON TIPOGRAFÍA REFINADA */
+          /* VISTA GRÁFICA EJECUTIVA POR DÍA CON BANDAS DE COLOR, ACORDEÓN, LÍNEA DE TIEMPO Y PÍLDORAS */
           <div className="space-y-4">
             {diasFiltrados.map((dia) => {
               const esDiaActual = dia.id === diaActualId;
+              const estaColapsado = Boolean(diasColapsados[dia.id]);
 
               if (dia.esFestivo && dia.actividades.length === 0) {
                 return (
                   <div
                     key={dia.id}
-                    className={`rounded-xl border overflow-hidden ${
+                    className={`rounded-2xl border overflow-hidden border-l-4 border-l-[#ED145B] ${
                       esDiaActual
                         ? 'border-2 border-[#ED145B] bg-rose-50/50 shadow-sm ring-2 ring-rose-100'
                         : 'border-rose-200 bg-rose-50/40'
                     }`}
                   >
-                    <div className="px-5 py-3.5 bg-rose-100/60 border-b border-rose-200 flex flex-wrap items-center justify-between gap-3">
+                    <div className="px-5 py-3.5 bg-linear-to-r from-rose-100/80 via-rose-50 to-white border-b border-rose-200 flex flex-wrap items-center justify-between gap-3">
                       <div className="flex items-center gap-3">
-                        <span className="px-2.5 py-1 text-[11px] font-mono-tabular font-bold uppercase bg-[#ED145B] text-white rounded-md">
+                        <span className="px-2.5 py-1 text-[11px] font-mono-tabular font-bold uppercase bg-[#ED145B] text-white rounded-lg shadow-2xs">
                           FESTIVO
                         </span>
                         <h3 className="text-sm sm:text-base font-display font-extrabold text-[#0F172A] uppercase">
@@ -631,26 +635,35 @@ export const VistaBoletinOficial: React.FC<VistaBoletinOficialProps> = ({
               return (
                 <div
                   key={dia.id}
-                  className={`rounded-xl border overflow-hidden transition-all ${
+                  className={`rounded-2xl border overflow-hidden transition-all border-l-4 ${
                     esDiaActual
-                      ? 'border-2 border-[#034EA2] bg-white shadow-md ring-2 ring-sky-100'
-                      : 'border-slate-200/90 bg-white shadow-2xs'
+                      ? 'border-2 border-[#034EA2] border-l-4 border-l-[#034EA2] bg-white shadow-md ring-2 ring-sky-100'
+                      : 'border-slate-200/90 border-l-[#007DC5] bg-white shadow-xs'
                   }`}
                 >
-                  {/* Cabecera del día */}
+                  {/* Cabecera del día con banda cromática y acordeón */}
                   <div
                     className={`px-5 py-3.5 border-b flex flex-wrap items-center justify-between gap-3 ${
                       esDiaActual
-                        ? 'bg-sky-50/90 border-sky-200'
-                        : 'bg-slate-50 border-slate-200'
+                        ? 'bg-linear-to-r from-[#034EA2]/15 via-sky-50 to-white border-sky-200'
+                        : 'bg-linear-to-r from-[#034EA2]/8 via-slate-50 to-white border-slate-200/80'
                     }`}
                   >
-                    <div className="flex flex-wrap items-center gap-3">
-                      <span className="w-7 h-7 rounded-lg bg-[#034EA2] text-white font-mono-tabular font-bold text-xs inline-flex items-center justify-center shadow-xs">
-                        {dia.actividades.length}
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setDiasColapsados((prev) => ({
+                          ...prev,
+                          [dia.id]: !prev[dia.id],
+                        }))
+                      }
+                      className="flex flex-wrap items-center gap-3 text-left cursor-pointer group"
+                    >
+                      <span className="w-8 h-8 rounded-xl bg-[#034EA2] text-white font-mono-tabular font-extrabold text-xs inline-flex items-center justify-center shadow-2xs shrink-0">
+                        {String(dia.actividades.length).padStart(2, '0')}
                       </span>
                       <h3
-                        className={`text-sm sm:text-base font-display font-extrabold uppercase ${
+                        className={`text-sm sm:text-base font-display font-extrabold uppercase group-hover:text-[#007DC5] transition-colors ${
                           esDiaActual ? 'text-[#034EA2]' : 'text-[#0F172A]'
                         }`}
                       >
@@ -667,82 +680,120 @@ export const VistaBoletinOficial: React.FC<VistaBoletinOficialProps> = ({
                           {dia.notaHorario}
                         </span>
                       )}
+                    </button>
+
+                    <div className="flex items-center gap-2.5">
+                      <span
+                        className={`px-2.5 py-1 rounded-lg text-xs font-mono-tabular font-bold ${
+                          esDiaActual
+                            ? 'bg-sky-100 text-[#034EA2]'
+                            : 'bg-slate-100 text-slate-600'
+                        }`}
+                      >
+                        {dia.actividades.length} actividad(es)
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setDiasColapsados((prev) => ({
+                            ...prev,
+                            [dia.id]: !prev[dia.id],
+                          }))
+                        }
+                        aria-label={estaColapsado ? 'Expandir día' : 'Contraer día'}
+                        className="p-1.5 rounded-lg border border-slate-200/80 bg-white text-slate-500 hover:text-[#034EA2] hover:bg-sky-50 transition-colors cursor-pointer"
+                      >
+                        {estaColapsado ? (
+                          <ChevronDown className="w-4 h-4" />
+                        ) : (
+                          <ChevronUp className="w-4 h-4" />
+                        )}
+                      </button>
                     </div>
-                    <span
-                      className={`text-xs font-mono-tabular font-semibold ${
-                        esDiaActual ? 'text-[#034EA2]' : 'text-slate-500'
-                      }`}
-                    >
-                      {dia.actividades.length} actividad(es)
-                    </span>
                   </div>
 
-                  {/* Lista de actividades del día */}
-                  {dia.actividades.length === 0 ? (
-                    <div className="p-5 text-xs text-slate-500 italic">
-                      Sin actividades extraordinarias registradas para este día.
-                    </div>
-                  ) : (
-                    <div className="divide-y divide-slate-100">
-                      {dia.actividades.map((act, idx) => (
-                        <div
-                          key={act.id}
-                          className={`p-4 sm:px-5 transition-colors grid grid-cols-1 md:grid-cols-12 gap-3 sm:gap-4 items-start ${
-                            act.reprogramada
-                              ? 'bg-amber-50/90 border-l-4 border-l-amber-500 hover:bg-amber-100/90'
-                              : esDiaActual
-                                ? idx % 2 === 1
-                                  ? 'bg-sky-50/60 hover:bg-sky-100/60'
-                                  : 'bg-white hover:bg-sky-50/40'
-                                : idx % 2 === 1
-                                  ? 'bg-slate-50/80 hover:bg-slate-100/70'
-                                  : 'bg-white hover:bg-slate-50/80'
-                          }`}
-                        >
-                          {/* Hora */}
-                          <div className="md:col-span-3 flex items-center gap-2">
-                            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-sky-50 border border-sky-200/80 text-[#034EA2] font-mono-tabular text-xs font-semibold">
-                              <Clock className="w-3.5 h-3.5 text-[#007DC5] shrink-0" />
-                              {act.hora}
-                            </span>
-                          </div>
-
-                          {/* Actividad + Reprogramación */}
-                          <div className="md:col-span-5 space-y-1.5">
-                            <div className="text-[14px] font-bold text-[#0F172A] leading-snug">
-                              {act.titulo}
-                            </div>
-                            {act.reprogramada && act.notaReprogramacion && (
-                              <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-md text-xs font-bold bg-amber-100 text-amber-950 border border-amber-300">
-                                <AlertTriangle className="w-3.5 h-3.5 text-amber-700 shrink-0" />
-                                {act.notaReprogramacion}
-                              </div>
-                            )}
-                          </div>
-
-                          {/* Responsable y Lugar */}
-                          <div className="md:col-span-4 flex flex-col sm:flex-row md:flex-col gap-1.5 text-xs text-slate-600">
-                            <div className="flex items-start gap-1.5">
-                              <UserCheck className="w-3.5 h-3.5 text-[#007DC5] shrink-0 mt-0.5" />
-                              <span>
-                                <strong className="text-[#0F172A] font-semibold">
-                                  Responsable:
-                                </strong>{' '}
-                                {act.responsable}
-                              </span>
-                            </div>
-                            <div className="flex items-start gap-1.5">
-                              <MapPin className="w-3.5 h-3.5 text-[#ED145B] shrink-0 mt-0.5" />
-                              <span className="text-slate-500 font-medium">
-                                <strong className="text-slate-700 font-semibold">
-                                  Lugar:
-                                </strong>{' '}
-                                {act.lugar}
-                              </span>
-                            </div>
-                          </div>
+                  {/* Lista de actividades del día con línea de tiempo y píldoras */}
+                  {!estaColapsado && (
+                    <div className="p-4 sm:p-5">
+                      {dia.actividades.length === 0 ? (
+                        <div className="rounded-xl bg-slate-50/80 border border-dashed border-slate-200 px-4 py-3.5 text-xs text-slate-500 italic">
+                          Sin actividades extraordinarias registradas para este día.
                         </div>
-                      ))}
+                      ) : (
+                        <div className="relative pl-4 sm:pl-5 border-l-2 border-sky-200/90 space-y-3">
+                          {dia.actividades.map((act, idx) => (
+                            <div
+                              key={act.id}
+                              className={`relative rounded-xl p-3.5 sm:p-4 border transition-all grid grid-cols-1 md:grid-cols-12 gap-3 sm:gap-4 items-center ${
+                                act.reprogramada
+                                  ? 'bg-amber-50/90 border-l-4 border-l-amber-500 border-amber-200 hover:bg-amber-100/80'
+                                  : esDiaActual
+                                    ? idx % 2 === 1
+                                      ? 'bg-sky-50/40 border-sky-100 hover:bg-sky-50/80'
+                                      : 'bg-white border-slate-200/80 hover:border-sky-200'
+                                    : idx % 2 === 1
+                                      ? 'bg-slate-50/70 border-slate-200/70 hover:bg-white hover:border-sky-200'
+                                      : 'bg-white border-slate-200/80 hover:border-sky-200'
+                              }`}
+                            >
+                              {/* Numeración en la línea de tiempo */}
+                              <span
+                                aria-hidden="true"
+                                className={`absolute -left-[25px] sm:-left-[29px] top-4 w-5 h-5 rounded-full text-[10px] font-mono-tabular font-extrabold flex items-center justify-center ring-4 ring-white ${
+                                  act.reprogramada
+                                    ? 'bg-amber-500 text-white'
+                                    : 'bg-[#007DC5] text-white'
+                                }`}
+                              >
+                                {String(idx + 1).padStart(2, '0')}
+                              </span>
+
+                              {/* Hora en píldora */}
+                              <div className="md:col-span-3 flex items-center gap-2">
+                                <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg bg-sky-50 border border-sky-200/90 text-[#034EA2] font-mono-tabular text-xs font-bold shadow-2xs">
+                                  <Clock className="w-3.5 h-3.5 text-[#007DC5] shrink-0" />
+                                  {act.hora}
+                                </span>
+                              </div>
+
+                              {/* Actividad + Reprogramación */}
+                              <div className="md:col-span-5 space-y-1.5">
+                                <div className="text-[14px] font-bold text-[#0F172A] leading-snug">
+                                  {act.titulo}
+                                </div>
+                                {act.reprogramada && act.notaReprogramacion && (
+                                  <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-lg text-xs font-bold bg-amber-100 text-amber-950 border border-amber-300">
+                                    <AlertTriangle className="w-3.5 h-3.5 text-amber-700 shrink-0" />
+                                    {act.notaReprogramacion}
+                                  </div>
+                                )}
+                              </div>
+
+                              {/* Píldoras de Responsable y Lugar */}
+                              <div className="md:col-span-4 flex flex-wrap gap-1.5">
+                                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-white border border-slate-200/90 text-xs text-slate-700 shadow-2xs">
+                                  <UserCheck className="w-3.5 h-3.5 text-[#007DC5] shrink-0" />
+                                  <span>
+                                    <strong className="text-[#0F172A] font-semibold">
+                                      Resp:
+                                    </strong>{' '}
+                                    {act.responsable}
+                                  </span>
+                                </span>
+                                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-50/70 border border-emerald-200/80 text-xs text-emerald-950">
+                                  <MapPin className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                                  <span className="font-medium">
+                                    <strong className="text-emerald-900 font-semibold">
+                                      Lugar:
+                                    </strong>{' '}
+                                    {act.lugar}
+                                  </span>
+                                </span>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
@@ -1083,7 +1134,7 @@ export const VistaBoletinOficial: React.FC<VistaBoletinOficialProps> = ({
               </span>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 overflow-y-auto pr-1 flex-1 max-h-[460px]">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
               {FESTIVOS_COLOMBIA_2026.map((fest) => {
                 const esDeEstaSemana = estadoCalendario.festivosSemana.some(
                   (f) => f.fecha === fest.fecha

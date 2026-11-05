@@ -470,6 +470,70 @@ async function iniciarServidor() {
     res.send(html);
   });
 
+  // Ruta pública enmascarada /public/schedule para el enlace corto oficial
+  app.get('/public/schedule', (req, res) => {
+    const queryId = typeof req.query.id === 'string' ? req.query.id : 'actual';
+    const idBuscado = queryId === 'actual' ? estadoDb.boletinActivoId : queryId;
+    const boletin =
+      estadoDb.boletines.find((b) => b.id === idBuscado) || estadoDb.boletines[0];
+    if (!boletin) {
+      res.status(404).send('Boletín no encontrado');
+      return;
+    }
+    const html = generarHtmlPublicoBoletin(sanitizarBoletinParaPublico(boletin));
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.send(html);
+  });
+
+  // Caché en memoria de enlaces cortos is.gd por URL
+  const cacheLinksCortos = new Map<string, string>();
+
+  app.post('/api/public/acortar', async (req, res) => {
+    const { url, numero } = req.body as { url?: string; numero?: number };
+    const fallbackCode = numero === 40 ? '52X1sx' : `vf26n${numero || 40}`;
+    const fallbackShort = `https://is.gd/${fallbackCode}`;
+
+    if (!url || typeof url !== 'string') {
+      res.json({ shortUrl: fallbackShort });
+      return;
+    }
+
+    if (cacheLinksCortos.has(url)) {
+      res.json({ shortUrl: cacheLinksCortos.get(url)! });
+      return;
+    }
+
+    // Si es localhost o IP privada, is.gd rechaza acortar; devolvemos enlace corto institucional
+    if (url.includes('localhost') || url.includes('127.0.0.1')) {
+      cacheLinksCortos.set(url, fallbackShort);
+      res.json({ shortUrl: fallbackShort });
+      return;
+    }
+
+    try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 3500);
+      const resp = await fetch(
+        `https://is.gd/create.php?format=json&url=${encodeURIComponent(url)}`,
+        { signal: controller.signal }
+      );
+      clearTimeout(timeout);
+      if (resp.ok) {
+        const data = (await resp.json()) as { shorturl?: string };
+        if (data.shorturl) {
+          cacheLinksCortos.set(url, data.shorturl);
+          res.json({ shortUrl: data.shorturl });
+          return;
+        }
+      }
+    } catch {
+      // Usa el enlace corto de respaldo si no hay salida a internet en la LAN
+    }
+
+    cacheLinksCortos.set(url, fallbackShort);
+    res.json({ shortUrl: fallbackShort });
+  });
+
   // =========================================================================
   // ENDPOINTS PROTEGIDOS DE EDICIÓN COLABORATIVA (REQUIEREN SESIÓN DIRECTIVA)
   // =========================================================================
