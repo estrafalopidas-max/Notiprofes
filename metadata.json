@@ -1,0 +1,6 @@
+{
+  "name": "NotiProfes Digital — I.E. Villa Flora",
+  "description": "Plataforma colaborativa en tiempo real para la gestión, edición multi-equipo y publicación automática del boletín institucional semanal Noti-Profes, horarios de apoyo y actividades a largo plazo en NAS.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

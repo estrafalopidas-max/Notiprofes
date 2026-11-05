@@ -1,0 +1,1012 @@
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  Calendar,
+  CalendarRange,
+  Clock,
+  ExternalLink,
+  FileText,
+  Globe,
+  LayoutGrid,
+  LogIn,
+  LogOut,
+  Menu,
+  PanelLeftClose,
+  PanelLeftOpen,
+  Printer,
+  Share2,
+  ShieldCheck,
+  UserCheck,
+  Users,
+  X,
+} from 'lucide-react';
+import { BOLETIN_40_SEED } from './data/seedNotiprofes40';
+import {
+  BoletinSemanal,
+  OperacionBoletin,
+  PresenciaActiva,
+  UsuarioDirectivo,
+} from './types/notiprofes';
+import { VistaBoletinOficial } from './components/VistaBoletinOficial';
+import {
+  PanelEditorColaborativo,
+  SeccionEditor,
+} from './components/PanelEditorColaborativo';
+import { GuiaDespliegueNas } from './components/GuiaDespliegueNas';
+import { ModalAccesoDirectivo } from './components/ModalAccesoDirectivo';
+import { ModalAdministracionUsuarios } from './components/ModalAdministracionUsuarios';
+import { ModalPrevisualizarBoletin } from './components/ModalPrevisualizarBoletin';
+import { DropdownPersonalizado } from './components/DropdownPersonalizado';
+import { calcularEstadoCalendarioBoletin } from './utils/calendarioEscolar2026';
+
+type VistaPrincipal = 'boletin' | 'editor' | 'nas';
+
+interface ResumenBoletin {
+  id: string;
+  numero: number;
+  fechaEmision: string;
+  semanaTexto: string;
+}
+
+function obtenerIniciales(nombre: string): string {
+  if (!nombre) return 'DP';
+  const partes = nombre.trim().split(/\s+/).filter(Boolean);
+  if (partes.length === 0) return 'DP';
+  if (partes.length === 1) return partes[0].slice(0, 2).toUpperCase();
+  return (partes[0][0] + partes[1][0]).toUpperCase();
+}
+
+export default function App() {
+  const [vistaActiva, setVistaActiva] = useState<VistaPrincipal>('boletin');
+  const [seccionEditorInicial, setSeccionEditorInicial] =
+    useState<SeccionEditor>('semanal');
+  const [boletin, setBoletin] = useState<BoletinSemanal>(BOLETIN_40_SEED);
+  const [listaBoletines, setListaBoletines] = useState<ResumenBoletin[]>([
+    {
+      id: BOLETIN_40_SEED.id,
+      numero: BOLETIN_40_SEED.numero,
+      fechaEmision: BOLETIN_40_SEED.fechaEmision,
+      semanaTexto: BOLETIN_40_SEED.semanaTexto,
+    },
+  ]);
+
+  const [sidebarColapsado, setSidebarColapsado] = useState<boolean>(false);
+  const [menuMovilAbierto, setMenuMovilAbierto] = useState<boolean>(false);
+  const [copiadoHeader, setCopiadoHeader] = useState<boolean>(false);
+
+  const [tokenSesion, setTokenSesion] = useState<string | null>(null);
+  const [usuarioDirectivo, setUsuarioDirectivo] =
+    useState<UsuarioDirectivo | null>(null);
+  const [modalLoginAbierto, setModalLoginAbierto] = useState<boolean>(false);
+  const [modalPreviewAbierto, setModalPreviewAbierto] = useState<boolean>(false);
+  const [modalUsuariosAbierto, setModalUsuariosAbierto] = useState<boolean>(false);
+
+  const [presencia, setPresencia] = useState<PresenciaActiva[]>([]);
+  const [wsConectado, setWsConectado] = useState<boolean>(false);
+  const wsRef = useRef<WebSocket | null>(null);
+  const seccionActivaRef = useRef<string>('Boletín Oficial');
+  const tokenRef = useRef<string | null>(null);
+
+  const headerRef = useRef<HTMLElement>(null);
+  const [alturaHeader, setAlturaHeader] = useState<number>(140);
+
+  useEffect(() => {
+    tokenRef.current = tokenSesion;
+  }, [tokenSesion]);
+
+  useEffect(() => {
+    if (!headerRef.current) return;
+    const actualizar = () => {
+      if (headerRef.current) {
+        setAlturaHeader(headerRef.current.offsetHeight);
+      }
+    };
+    actualizar();
+    const observer = new ResizeObserver(actualizar);
+    observer.observe(headerRef.current);
+    window.addEventListener('resize', actualizar);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener('resize', actualizar);
+    };
+  }, []);
+
+  const cargarBoletinesServidor = useCallback(async (idEspecifico?: string) => {
+    try {
+      const [respLista, respBoletin] = await Promise.all([
+        fetch('/api/public/boletines'),
+        fetch(`/api/public/boletin/${idEspecifico || 'actual'}`),
+      ]);
+
+      if (respLista.ok) {
+        const dataLista = await respLista.json();
+        if (Array.isArray(dataLista.boletines)) {
+          setListaBoletines(dataLista.boletines);
+        }
+      }
+
+      if (respBoletin.ok) {
+        const dataBoletin = await respBoletin.json();
+        if (dataBoletin.boletin) {
+          setBoletin(dataBoletin.boletin);
+        }
+      }
+    } catch {
+      // Mantiene datos semilla locales si el servidor está reiniciando
+    }
+  }, []);
+
+  useEffect(() => {
+    cargarBoletinesServidor();
+  }, [cargarBoletinesServidor]);
+
+  useEffect(() => {
+    let cancelado = false;
+    let timerReconexion: ReturnType<typeof setTimeout> | null = null;
+
+    const conectarWs = () => {
+      if (cancelado) return;
+      const protocolo = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const wsUrl = `${protocolo}//${window.location.host}/ws`;
+      const socket = new WebSocket(wsUrl);
+      wsRef.current = socket;
+
+      socket.onopen = () => {
+        if (cancelado) return;
+        setWsConectado(true);
+        socket.send(
+          JSON.stringify({
+            tipo: 'presencia:actualizar',
+            token: tokenRef.current || undefined,
+            seccionActiva: seccionActivaRef.current,
+          })
+        );
+      };
+
+      socket.onmessage = (event) => {
+        try {
+          const msg = JSON.parse(event.data);
+          if (msg.evento === 'presencia:actualizada' && Array.isArray(msg.conectados)) {
+            setPresencia(msg.conectados);
+          } else if (msg.evento === 'boletin:actualizado' && msg.boletin) {
+            setBoletin((prev) =>
+              prev.id === msg.boletin.id ? msg.boletin : prev
+            );
+          } else if (msg.evento === 'boletin:clonado' && msg.boletin) {
+            setBoletin(msg.boletin);
+            cargarBoletinesServidor(msg.boletin.id);
+          }
+        } catch {
+          // Ignorar mensajes no JSON
+        }
+      };
+
+      socket.onclose = () => {
+        if (cancelado) return;
+        setWsConectado(false);
+        timerReconexion = setTimeout(conectarWs, 2500);
+      };
+    };
+
+    conectarWs();
+
+    return () => {
+      cancelado = true;
+      if (timerReconexion) clearTimeout(timerReconexion);
+      if (wsRef.current) {
+        wsRef.current.close();
+      }
+    };
+  }, [cargarBoletinesServidor]);
+
+  const ultimoMovimientoRef = useRef<number>(Date.now());
+  const [estadoActividadLocal, setEstadoActividadLocal] = useState<'editando' | 'desatendido'>('editando');
+  const estadoActividadLocalRef = useRef<'editando' | 'desatendido'>('editando');
+
+  const emitirPresencia = useCallback(
+    (
+      nuevaSeccion: string,
+      tokenOverride?: string | null,
+      estadoOverride?: 'editando' | 'desatendido'
+    ) => {
+      seccionActivaRef.current = nuevaSeccion;
+      const tk = tokenOverride !== undefined ? tokenOverride : tokenRef.current;
+      const estado = estadoOverride !== undefined ? estadoOverride : estadoActividadLocalRef.current;
+      estadoActividadLocalRef.current = estado;
+      setEstadoActividadLocal(estado);
+
+      if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+        wsRef.current.send(
+          JSON.stringify({
+            tipo: 'presencia:actualizar',
+            token: tk || undefined,
+            seccionActiva: nuevaSeccion,
+            estadoActividad: estado,
+          })
+        );
+      }
+    },
+    []
+  );
+
+  useEffect(() => {
+    // Al interactuar con el sistema (mouse, teclado, click, scroll, touch), reactivar estado Activo
+    const registrarActividad = () => {
+      ultimoMovimientoRef.current = Date.now();
+      if (estadoActividadLocalRef.current === 'desatendido') {
+        estadoActividadLocalRef.current = 'editando';
+        setEstadoActividadLocal('editando');
+        emitirPresencia(seccionActivaRef.current, undefined, 'editando');
+      }
+    };
+
+    window.addEventListener('keydown', registrarActividad, { passive: true });
+    window.addEventListener('mousemove', registrarActividad, { passive: true });
+    window.addEventListener('click', registrarActividad, { passive: true });
+    window.addEventListener('scroll', registrarActividad, { passive: true });
+    window.addEventListener('touchstart', registrarActividad, { passive: true });
+
+    // Monitor de inactividad: si transcurren más de 40s sin movimiento, marcar como Desatendido
+    const timerInactividad = setInterval(() => {
+      const msInactivo = Date.now() - ultimoMovimientoRef.current;
+      if (msInactivo > 40000 && estadoActividadLocalRef.current === 'editando') {
+        estadoActividadLocalRef.current = 'desatendido';
+        setEstadoActividadLocal('desatendido');
+        emitirPresencia(seccionActivaRef.current, undefined, 'desatendido');
+      }
+    }, 3000);
+
+    return () => {
+      window.removeEventListener('keydown', registrarActividad);
+      window.removeEventListener('mousemove', registrarActividad);
+      window.removeEventListener('click', registrarActividad);
+      window.removeEventListener('scroll', registrarActividad);
+      window.removeEventListener('touchstart', registrarActividad);
+      clearInterval(timerInactividad);
+    };
+  }, [emitirPresencia]);
+
+  const listaConectados = useMemo<PresenciaActiva[]>(() => {
+    if (presencia.length > 0) {
+      return presencia;
+    }
+    if (usuarioDirectivo) {
+      return [
+        {
+          clienteId: 'local-dir',
+          nombre: usuarioDirectivo.nombre,
+          cargo: usuarioDirectivo.cargo,
+          color: usuarioDirectivo.color || '#007DC5',
+          seccionActiva: seccionActivaRef.current,
+          conectadoDesde: new Date().toISOString(),
+          estadoActividad: estadoActividadLocal,
+        } as PresenciaActiva,
+      ];
+    }
+    return [
+      {
+        clienteId: 'local-lector',
+        nombre: 'Docente en Red',
+        cargo: 'Consulta Pública',
+        color: '#007DC5',
+        seccionActiva: 'Boletín Oficial',
+        conectadoDesde: new Date().toISOString(),
+        estadoActividad: estadoActividadLocal,
+      } as PresenciaActiva,
+    ];
+  }, [presencia, usuarioDirectivo, estadoActividadLocal]);
+
+  const handleAutenticarExito = (token: string, usuario: UsuarioDirectivo) => {
+    setTokenSesion(token);
+    setUsuarioDirectivo(usuario);
+    emitirPresencia(seccionActivaRef.current, token);
+  };
+
+  const handleCerrarSesion = async () => {
+    if (tokenSesion) {
+      try {
+        await fetch('/api/auth/logout', {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${tokenSesion}` },
+        });
+      } catch {
+        // Ignorar error de red al cerrar sesión
+      }
+    }
+    setTokenSesion(null);
+    setUsuarioDirectivo(null);
+    emitirPresencia(seccionActivaRef.current, null);
+  };
+
+  const handleEjecutarOperacion = async (op: OperacionBoletin): Promise<boolean> => {
+    if (!tokenSesion) {
+      setModalLoginAbierto(true);
+      return false;
+    }
+
+    try {
+      const resp = await fetch(`/api/boletines/${boletin.id}/operacion`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${tokenSesion}`,
+        },
+        body: JSON.stringify({ operacion: op }),
+      });
+
+      if (resp.status === 401) {
+        setTokenSesion(null);
+        setUsuarioDirectivo(null);
+        setModalLoginAbierto(true);
+        return false;
+      }
+
+      if (!resp.ok) return false;
+      const data = await resp.json();
+      if (data.boletin) {
+        setBoletin(data.boletin);
+      }
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
+  const handleClonarSemana = async (datos: {
+    semanaTexto: string;
+    fechaEmision: string;
+    descripcionPeriodo: string;
+    conservarActividades: boolean;
+  }): Promise<boolean> => {
+    if (!tokenSesion) {
+      setModalLoginAbierto(true);
+      return false;
+    }
+
+    try {
+      const resp = await fetch(`/api/boletines/${boletin.id}/clonar`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${tokenSesion}`,
+        },
+        body: JSON.stringify(datos),
+      });
+
+      if (!resp.ok) return false;
+      const data = await resp.json();
+      if (data.boletin) {
+        setBoletin(data.boletin);
+        await cargarBoletinesServidor(data.boletin.id);
+      }
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
+  const irASeccionEditor = (seccion: SeccionEditor, nombrePresencia: string) => {
+    setSeccionEditorInicial(seccion);
+    setVistaActiva('editor');
+    setMenuMovilAbierto(false);
+    emitirPresencia(nombrePresencia);
+  };
+
+  const handleCopiarUrlPublica = () => {
+    const url = `${window.location.origin}/api/public/boletin/${boletin.id}/html`;
+    navigator.clipboard?.writeText(url);
+    setCopiadoHeader(true);
+    setTimeout(() => setCopiadoHeader(false), 2400);
+  };
+
+  const estadoCalendario = calcularEstadoCalendarioBoletin(boletin);
+
+  return (
+    <div
+      style={{ '--header-h': `${alturaHeader}px` } as React.CSSProperties}
+      className="min-h-screen flex flex-col bg-[#F4F7FB] text-[#0F172A]"
+    >
+      {/* BARRA SUPERIOR UNIFICADA: ENCABEZADO DEL MENÚ LATERAL Y NAVBAR A LA MISMA ALTURA */}
+      <header
+        ref={headerRef}
+        className="no-print sticky top-0 z-30 bg-white/95 backdrop-blur-md border-b border-slate-200/90 shadow-2xs flex items-stretch"
+      >
+        {/* Encabezado del Menú Lateral: Permanente, NUNCA se oculta */}
+        <div className="shrink-0 border-r border-slate-200/90 bg-linear-to-b from-sky-50/70 to-white flex flex-col justify-center px-3 sm:px-4 select-none w-auto sm:w-60 lg:w-68">
+          {/* Vista móvil compacta (para pantallas muy pequeñas) */}
+          <div className="sm:hidden flex flex-col items-start justify-center gap-0.5">
+            <div className="flex items-center gap-1 text-[#034EA2] font-display font-black text-xs">
+              <Calendar className="w-3.5 h-3.5 text-[#007DC5] shrink-0" />
+              <span>N° {boletin.numero}</span>
+              <span className="text-[10px] text-slate-500 font-bold ml-0.5">
+                ({estadoCalendario.numeroPeriodo}P)
+              </span>
+            </div>
+            <span className="text-[10px] font-mono-tabular font-semibold text-slate-500">
+              {estadoCalendario.fechaPublicacionFormateada}
+            </span>
+          </div>
+
+          {/* Vista completa permanente (pantallas sm en adelante) */}
+          <div className="hidden sm:block">
+            <div className="flex items-center justify-between gap-1">
+              <div className="flex items-center gap-1.5 text-[#034EA2] font-display font-extrabold text-xs tracking-wider">
+                <Calendar className="w-4 h-4 text-[#007DC5] shrink-0" />
+                <span>
+                  {estadoCalendario.numeroPeriodo}
+                  <sup className="text-[10px] font-extrabold lowercase ml-0.5">
+                    {estadoCalendario.ordinalSup}
+                  </sup>{' '}
+                  PERIODO
+                </span>
+              </div>
+              <span className="text-[11px] font-mono-tabular font-semibold text-slate-500">
+                <strong className="text-slate-700 font-bold">Fecha:</strong>{' '}
+                {estadoCalendario.fechaPublicacionFormateada}
+              </span>
+            </div>
+
+            <div className="mt-1.5 space-y-0.5">
+              <div className="text-base lg:text-lg font-display font-black text-[#034EA2] tracking-tight leading-tight">
+                Edición Nº {boletin.numero}
+              </div>
+              <div className="text-xs font-bold text-[#0F172A] leading-tight truncate">
+                {estadoCalendario.rangoSemanaFormateado}
+              </div>
+              <div className="text-[11px] font-medium text-slate-500 leading-tight truncate">
+                {estadoCalendario.textoSemanaDePeriodo}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* NAVBAR DERECHO: LOGO A LA IZQUIERDA Y DIV DERECHO CON TÍTULO Y BOTONES DEBAJO */}
+        <div className="flex-1 px-4 sm:px-6 py-2 flex items-center justify-between gap-4 min-w-0">
+          {/* Izquierda: Menú móvil (en pantallas pequeñas) + Escudo Institucional 50% más grande */}
+          <div className="flex items-center gap-3 shrink-0">
+            <button
+              type="button"
+              onClick={() => {
+                setMenuMovilAbierto(true);
+                setSidebarColapsado(false);
+              }}
+              className="lg:hidden p-2 rounded-lg text-slate-600 hover:text-[#034EA2] hover:bg-slate-100 cursor-pointer transition-colors"
+              aria-label="Abrir menú principal"
+              title="Abrir menú de navegación"
+            >
+              <Menu className="w-5 h-5" />
+            </button>
+
+            <a
+              href="#inicio"
+              onClick={(e) => {
+                e.preventDefault();
+                setVistaActiva('boletin');
+                emitirPresencia('Boletín Oficial');
+              }}
+              className="flex items-center group cursor-pointer py-0.5"
+              title="Institución Educativa Villa Flora · Ir al inicio"
+            >
+              <img
+                src="/public/assets/aistudio/Lab_2f0276da.png"
+                alt="Escudo Institución Educativa Villa Flora"
+                referrerPolicy="no-referrer"
+                className="h-[72px] sm:h-[84px] md:h-[96px] w-auto object-contain shrink-0 transition-transform duration-200 group-hover:scale-105 drop-shadow-xs"
+              />
+            </a>
+          </div>
+
+          {/* Derecha: MISMO DIV con el texto "NOTIPROFES DIGITAL" arriba y los botones inmediatamente debajo */}
+          <div className="flex flex-col items-end text-right shrink-0 ml-auto gap-1.5 min-w-0">
+            <a
+              href="#inicio"
+              onClick={(e) => {
+                e.preventDefault();
+                setVistaActiva('boletin');
+                emitirPresencia('Boletín Oficial');
+              }}
+              className="cursor-pointer group flex flex-col items-end text-right"
+            >
+              <h1 className="text-xl sm:text-2xl md:text-3xl font-display font-black uppercase tracking-tight text-[#034EA2] group-hover:text-[#007DC5] transition-colors leading-tight">
+                NOTIPROFES DIGITAL
+              </h1>
+              <p className="text-[11px] sm:text-xs font-medium text-slate-500 leading-tight mt-0.5 truncate max-w-[280px] sm:max-w-md md:max-w-xl">
+                Canal Oficial Docente, Directivo y Administrativo · I.E. Villa Flora
+              </p>
+            </a>
+
+            {/* Botones de acción en una sola fila protegida contra wrap (no se bajan nunca) */}
+            <div className="flex items-center justify-end gap-1.5 sm:gap-2 flex-nowrap shrink-0 overflow-x-auto max-w-full">
+              {listaBoletines.length > 1 && (
+                <DropdownPersonalizado
+                  modo="simple"
+                  ariaLabel="Cambiar edición de boletín"
+                  icono={<FileText className="w-4 h-4" />}
+                  etiquetaBoton={`N° ${boletin.numero}`}
+                  valorSeleccionado={boletin.id}
+                  onChange={(id) => cargarBoletinesServidor(id)}
+                  opciones={listaBoletines.map((item) => ({
+                    valor: item.id,
+                    etiqueta: `N° ${item.numero} (${item.fechaEmision})`,
+                  }))}
+                />
+              )}
+
+              <button
+                type="button"
+                onClick={() => window.print()}
+                title="Imprimir boletín oficial"
+                className="px-2.5 py-1 rounded-lg border border-slate-300 bg-white text-slate-700 hover:text-[#034EA2] hover:bg-slate-50 transition-colors cursor-pointer inline-flex items-center gap-1.5 text-xs font-semibold shadow-2xs"
+              >
+                <Printer className="w-3.5 h-3.5 text-slate-500" />
+                <span>Imprimir</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={handleCopiarUrlPublica}
+                className="px-2.5 py-1 rounded-lg border border-sky-200 bg-sky-50 text-[#034EA2] hover:bg-sky-100 transition-colors cursor-pointer inline-flex items-center gap-1.5 text-xs font-semibold shadow-2xs"
+              >
+                <Share2 className="w-3.5 h-3.5 text-[#007DC5]" />
+                <span>{copiadoHeader ? 'Enlace copiado' : 'Copiar enlace'}</span>
+              </button>
+
+              <a
+                href={`/api/public/boletin/${boletin.id}/html`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1.5 px-3 py-1 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg shadow-2xs transition-colors whitespace-nowrap cursor-pointer"
+              >
+                <ExternalLink className="w-3.5 h-3.5" />
+                <span>Publicar boletín</span>
+              </a>
+            </div>
+          </div>
+        </div>
+      </header>
+
+      {/* CUERPO INFERIOR: DRAWER DEL MENÚ LATERAL + CONTENIDO PRINCIPAL */}
+      <div className="flex-1 flex min-w-0 relative">
+        {/* BACKDROP PARA DRAWER EN MÓVIL */}
+        {menuMovilAbierto && (
+          <div
+            className="no-print fixed inset-0 z-30 bg-slate-900/40 backdrop-blur-xs lg:hidden transition-opacity"
+            onClick={() => setMenuMovilAbierto(false)}
+            aria-hidden="true"
+          />
+        )}
+
+        {/* DRAWER DEL MENÚ LATERAL: EXCLUSIVAMENTE PARA LA NAVEGACIÓN */}
+        <aside
+          aria-label="Menú de control lateral"
+          className={`no-print fixed inset-y-0 left-0 z-40 lg:sticky lg:top-[var(--header-h,140px)] lg:h-[calc(100vh-var(--header-h,140px))] bg-white border-r border-slate-200/90 flex flex-col justify-between transition-all duration-200 select-none ${
+            sidebarColapsado ? 'lg:w-18' : 'lg:w-68'
+          } ${
+            menuMovilAbierto
+              ? 'translate-x-0 w-68 shadow-2xl'
+              : '-translate-x-full lg:translate-x-0'
+          }`}
+        >
+          {/* Cabecera del Drawer: Estrictamente para controlar el menú (cerrar / contraer) */}
+          <div className="p-3 border-b border-slate-200/80 bg-slate-50/60 flex items-center justify-between">
+            <span className="text-[11px] font-display font-extrabold uppercase tracking-wider text-[#034EA2]">
+              {!sidebarColapsado ? 'Menú principal' : ''}
+            </span>
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                onClick={() => setSidebarColapsado((prev) => !prev)}
+                title={
+                  sidebarColapsado
+                    ? 'Expandir menú lateral'
+                    : 'Contraer menú a íconos'
+                }
+                className="hidden lg:inline-flex p-1.5 rounded-lg text-slate-400 hover:text-[#034EA2] hover:bg-slate-200/60 transition-colors cursor-pointer"
+              >
+                {sidebarColapsado ? (
+                  <PanelLeftOpen className="w-4 h-4" />
+                ) : (
+                  <PanelLeftClose className="w-4 h-4" />
+                )}
+              </button>
+              <button
+                type="button"
+                onClick={() => setMenuMovilAbierto(false)}
+                className="lg:hidden p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-200/60 rounded-lg cursor-pointer transition-colors"
+                aria-label="Cerrar menú"
+                title="Cerrar menú"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+
+          {/* Lista de Módulos del Menú Lateral */}
+          <div className="flex flex-col flex-1 overflow-y-auto pt-2">
+
+            <nav
+              aria-label="Navegación principal"
+              className="px-2.5 space-y-1 flex-1"
+            >
+              <button
+                type="button"
+                title="Boletín Oficial"
+                onClick={() => {
+                  setVistaActiva('boletin');
+                  setMenuMovilAbierto(false);
+                  emitirPresencia('Boletín Oficial');
+                }}
+                className={`w-full flex items-center ${
+                  sidebarColapsado ? 'justify-center px-2' : 'gap-3 px-3.5'
+                } py-2.5 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
+                  vistaActiva === 'boletin'
+                    ? 'bg-[#007DC5] text-white font-bold shadow-xs'
+                    : 'text-slate-700 hover:bg-slate-100 hover:text-[#034EA2]'
+                }`}
+              >
+                <LayoutGrid className="w-4 h-4 shrink-0" />
+                {!sidebarColapsado && (
+                  <span className="truncate">Boletín Oficial</span>
+                )}
+              </button>
+
+              <button
+                type="button"
+                title="Programación Semanal"
+                onClick={() => irASeccionEditor('semanal', 'Programación Semanal')}
+                className={`w-full flex items-center ${
+                  sidebarColapsado ? 'justify-center px-2' : 'gap-3 px-3.5'
+                } py-2.5 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
+                  vistaActiva === 'editor' && seccionEditorInicial === 'semanal'
+                    ? 'bg-[#007DC5] text-white font-bold shadow-xs'
+                    : 'text-slate-700 hover:bg-slate-100 hover:text-[#034EA2]'
+                }`}
+              >
+                <Calendar className="w-4 h-4 shrink-0" />
+                {!sidebarColapsado && (
+                  <span className="truncate">Programación Semanal</span>
+                )}
+              </button>
+
+              <button
+                type="button"
+                title="Documentos y Horarios"
+                onClick={() =>
+                  irASeccionEditor('documentos', 'Documentos y Enlaces')
+                }
+                className={`w-full flex items-center ${
+                  sidebarColapsado ? 'justify-center px-2' : 'gap-3 px-3.5'
+                } py-2.5 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
+                  vistaActiva === 'editor' && seccionEditorInicial === 'documentos'
+                    ? 'bg-[#007DC5] text-white font-bold shadow-xs'
+                    : 'text-slate-700 hover:bg-slate-100 hover:text-[#034EA2]'
+                }`}
+              >
+                <FileText className="w-4 h-4 shrink-0" />
+                {!sidebarColapsado && (
+                  <span className="truncate">Documentos y Horarios</span>
+                )}
+              </button>
+
+              <button
+                type="button"
+                title="Zonas y Noti-Prácticas"
+                onClick={() =>
+                  irASeccionEditor('practicas', 'Noti-Prácticas y Convivencia')
+                }
+                className={`w-full flex items-center ${
+                  sidebarColapsado ? 'justify-center px-2' : 'gap-3 px-3.5'
+                } py-2.5 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
+                  vistaActiva === 'editor' && seccionEditorInicial === 'practicas'
+                    ? 'bg-[#007DC5] text-white font-bold shadow-xs'
+                    : 'text-slate-700 hover:bg-slate-100 hover:text-[#034EA2]'
+                }`}
+              >
+                <ShieldCheck className="w-4 h-4 shrink-0" />
+                {!sidebarColapsado && (
+                  <span className="truncate">Zonas y Noti-Prácticas</span>
+                )}
+              </button>
+
+              <button
+                type="button"
+                title="Proyección Calendario"
+                onClick={() =>
+                  irASeccionEditor('largo_plazo', 'Calendario a Largo Plazo')
+                }
+                className={`w-full flex items-center ${
+                  sidebarColapsado ? 'justify-center px-2' : 'gap-3 px-3.5'
+                } py-2.5 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
+                  vistaActiva === 'editor' && seccionEditorInicial === 'largo_plazo'
+                    ? 'bg-[#007DC5] text-white font-bold shadow-xs'
+                    : 'text-slate-700 hover:bg-slate-100 hover:text-[#034EA2]'
+                }`}
+              >
+                <CalendarRange className="w-4 h-4 shrink-0" />
+                {!sidebarColapsado && (
+                  <span className="truncate">Proyección Calendario</span>
+                )}
+              </button>
+
+              <button
+                type="button"
+                title="Horarios de Apoyo"
+                onClick={() =>
+                  irASeccionEditor('horarios', 'Horarios Personal de Apoyo')
+                }
+                className={`w-full flex items-center ${
+                  sidebarColapsado ? 'justify-center px-2' : 'gap-3 px-3.5'
+                } py-2.5 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
+                  vistaActiva === 'editor' && seccionEditorInicial === 'horarios'
+                    ? 'bg-[#007DC5] text-white font-bold shadow-xs'
+                    : 'text-slate-700 hover:bg-slate-100 hover:text-[#034EA2]'
+                }`}
+              >
+                <Clock className="w-4 h-4 shrink-0" />
+                {!sidebarColapsado && (
+                  <span className="truncate">Horarios de Apoyo</span>
+                )}
+              </button>
+
+              <button
+                type="button"
+                title="Administración de Usuarios Institucionales"
+                onClick={() => setModalUsuariosAbierto(true)}
+                className={`w-full flex items-center ${
+                  sidebarColapsado ? 'justify-center px-2' : 'gap-3 px-3.5'
+                } py-2.5 rounded-xl text-xs font-semibold transition-all cursor-pointer text-slate-700 hover:bg-slate-100 hover:text-[#034EA2]`}
+              >
+                <UserCheck className="w-4 h-4 text-[#007DC5] shrink-0" />
+                {!sidebarColapsado && (
+                  <span className="truncate">Administración de Usuarios</span>
+                )}
+              </button>
+
+              <div className="pt-2 mt-2 border-t border-slate-200/80 space-y-1">
+                <button
+                  type="button"
+                  onClick={() => setModalPreviewAbierto(true)}
+                  title="Previsualizar HTML Oficial antes de publicar"
+                  className={`w-full flex items-center ${
+                    sidebarColapsado
+                      ? 'justify-center px-2'
+                      : 'justify-between gap-2 px-3.5'
+                  } py-2.5 rounded-xl text-xs font-semibold text-slate-700 hover:bg-emerald-50/80 hover:text-emerald-800 transition-colors cursor-pointer text-left`}
+                >
+                  <span className="flex items-center gap-3 truncate">
+                    <Globe className="w-4 h-4 text-emerald-600 shrink-0" />
+                    {!sidebarColapsado && <span>Previsualizar</span>}
+                  </span>
+                  {!sidebarColapsado && (
+                    <span className="px-1.5 py-0.5 text-[10px] font-bold uppercase rounded bg-emerald-100 text-emerald-700 border border-emerald-200">
+                      HTML
+                    </span>
+                  )}
+                </button>
+              </div>
+            </nav>
+          </div>
+
+          {/* Pie del Menú Lateral: Monitor de Usuarios Conectados y Sesión */}
+          <div className="p-2.5 border-t border-slate-200/80 space-y-2 bg-slate-50/50">
+            {/* Monitor de Usuarios Conectados */}
+            <div className="bg-[#0F172A] text-white rounded-xl p-2.5 space-y-2 shadow-xs">
+              <div
+                className={`flex items-center ${
+                  sidebarColapsado ? 'justify-center' : 'justify-between'
+                } text-[11px] font-bold text-slate-300`}
+              >
+                {!sidebarColapsado && (
+                  <span className="flex items-center gap-1.5">
+                    <Users className="w-3.5 h-3.5 text-[#007DC5]" />
+                    Conectados ({listaConectados.length})
+                  </span>
+                )}
+                <span
+                  title={wsConectado ? 'Conexión WebSocket activa' : 'Modo red local'}
+                  className="flex items-center gap-1 text-[10px] text-slate-400"
+                >
+                  <span
+                    className={`w-2 h-2 rounded-full ${
+                      wsConectado ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400'
+                    }`}
+                  />
+                  {!sidebarColapsado && (wsConectado ? 'En vivo' : 'Local')}
+                </span>
+              </div>
+
+              {/* Lista de Avatares */}
+              <div
+                className={`${
+                  sidebarColapsado
+                    ? 'flex flex-col items-center gap-2'
+                    : 'space-y-1.5 max-h-36 overflow-y-auto pr-0.5'
+                }`}
+              >
+                {listaConectados.map((u, idx) => {
+                  const estaEditando = u.estadoActividad === 'editando';
+                  const iniciales = obtenerIniciales(u.nombre);
+                  const estadoTexto = estaEditando ? 'Activo en el sistema' : 'Desatendido / Inactivo';
+
+                  if (sidebarColapsado) {
+                    return (
+                      <div
+                        key={u.clienteId || idx}
+                        title={`${u.nombre} (${u.cargo || 'Directivo'}) — ${estadoTexto}`}
+                        className="relative group cursor-pointer"
+                      >
+                        <div
+                          style={{ backgroundColor: u.color || '#007DC5' }}
+                          className={`w-7 h-7 rounded-full flex items-center justify-center text-white font-bold text-[11px] shadow-xs ring-2 ${
+                            estaEditando ? 'ring-emerald-400' : 'ring-amber-400'
+                          }`}
+                        >
+                          {iniciales}
+                        </div>
+                        <span
+                          className={`absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full ring-2 ring-[#0F172A] ${
+                            estaEditando
+                              ? 'bg-emerald-500 animate-pulse'
+                              : 'bg-amber-400'
+                          }`}
+                        />
+                      </div>
+                    );
+                  }
+
+                  return (
+                    <div
+                      key={u.clienteId || idx}
+                      title={`${u.nombre} — ${estadoTexto}`}
+                      className="bg-slate-800/80 border border-slate-700/60 rounded-lg p-1.5 flex items-center justify-between gap-2"
+                    >
+                      <div className="flex items-center gap-2 min-w-0">
+                        <div className="relative shrink-0">
+                          <div
+                            style={{ backgroundColor: u.color || '#007DC5' }}
+                            className={`w-6 h-6 rounded-full flex items-center justify-center text-white font-bold text-[10px] ring-1.5 ${
+                              estaEditando ? 'ring-emerald-400' : 'ring-amber-400'
+                            }`}
+                          >
+                            {iniciales}
+                          </div>
+                          <span
+                            className={`absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full ring-1.5 ring-slate-800 ${
+                              estaEditando
+                                ? 'bg-emerald-500 animate-pulse'
+                                : 'bg-amber-400'
+                            }`}
+                          />
+                        </div>
+                        <div className="min-w-0">
+                          <div className="text-[11px] font-bold text-white truncate leading-tight">
+                            {u.nombre}
+                          </div>
+                          <div className="text-[9px] text-slate-400 truncate leading-tight">
+                            {u.cargo || 'Directivo'}
+                          </div>
+                        </div>
+                      </div>
+                      <span
+                        className={`text-[9px] font-semibold px-1.5 py-0.5 rounded shrink-0 ${
+                          estaEditando
+                            ? 'bg-emerald-950 text-emerald-300 border border-emerald-800/60'
+                            : 'bg-amber-950 text-amber-300 border border-amber-800/60'
+                        }`}
+                      >
+                        {estaEditando ? 'Activo' : 'Desatendido'}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Botón Cerrar Sesión Permanente */}
+            <button
+              type="button"
+              onClick={handleCerrarSesion}
+              title={
+                usuarioDirectivo
+                  ? `Cerrar sesión de ${usuarioDirectivo.nombre}`
+                  : 'Cerrar sesión actual'
+              }
+              className={`w-full bg-rose-50 hover:bg-rose-100 border border-rose-200/90 rounded-xl py-1.5 px-2.5 flex items-center ${
+                sidebarColapsado ? 'justify-center' : 'justify-between gap-2'
+              } transition-all cursor-pointer text-left text-rose-700 shadow-xs`}
+            >
+              {!sidebarColapsado && (
+                <div className="min-w-0">
+                  <div className="text-xs font-bold text-rose-800 truncate leading-tight">
+                    Cerrar sesión
+                  </div>
+                  <div className="text-[10px] font-medium text-rose-600 truncate leading-tight">
+                    {usuarioDirectivo ? usuarioDirectivo.nombre : 'Sesión activa'}
+                  </div>
+                </div>
+              )}
+              <div className="p-1 rounded-lg bg-rose-100/80 text-rose-700 shrink-0">
+                <LogOut className="w-3.5 h-3.5" />
+              </div>
+            </button>
+
+            {!sidebarColapsado && (
+              <div className="text-[10px] text-slate-400 px-1 leading-tight text-center">
+                © 2026 Desarrollado y diseñado por
+                <br />
+                <strong className="font-bold text-slate-600">Reakta Group</strong>
+              </div>
+            )}
+          </div>
+        </aside>
+
+        {/* Fondo semitransparente para menú móvil */}
+        {menuMovilAbierto && (
+          <div
+            onClick={() => setMenuMovilAbierto(false)}
+            className="fixed inset-0 bg-slate-900/40 z-30 lg:hidden"
+          />
+        )}
+
+        {/* Área de Trabajo Principal */}
+        <main className="flex-1 w-full max-w-[1380px] mx-auto px-4 sm:px-6 py-6 min-w-0">
+          {vistaActiva === 'boletin' && (
+            <VistaBoletinOficial
+              boletin={boletin}
+              listaBoletines={listaBoletines}
+              onSeleccionarBoletin={(id) => cargarBoletinesServidor(id)}
+              onIrAEditor={() => {
+                setSeccionEditorInicial('semanal');
+                setVistaActiva('editor');
+                emitirPresencia('Programación Semanal');
+                if (!usuarioDirectivo) {
+                  setModalLoginAbierto(true);
+                }
+              }}
+              esDirectivoAutenticado={Boolean(usuarioDirectivo)}
+            />
+          )}
+
+          {vistaActiva === 'editor' && (
+            <PanelEditorColaborativo
+              key={seccionEditorInicial}
+              boletin={boletin}
+              usuarioActual={usuarioDirectivo}
+              presencia={presencia}
+              wsConectado={wsConectado}
+              onSolicitarLogin={() => setModalLoginAbierto(true)}
+              onEjecutarOperacion={handleEjecutarOperacion}
+              onClonarSemana={handleClonarSemana}
+              onCambiarSeccionActiva={(sec) => emitirPresencia(sec)}
+              seccionInicial={seccionEditorInicial}
+            />
+          )}
+
+          {vistaActiva === 'nas' && <GuiaDespliegueNas boletin={boletin} />}
+        </main>
+      </div>
+
+      <ModalAccesoDirectivo
+        abierto={modalLoginAbierto}
+        onCerrar={() => setModalLoginAbierto(false)}
+        onAutenticarExito={handleAutenticarExito}
+        onConsultaPublica={() => {
+          setModalLoginAbierto(false);
+          setVistaActiva('boletin');
+          emitirPresencia('Boletín Oficial');
+        }}
+      />
+
+      <ModalPrevisualizarBoletin
+        abierto={modalPreviewAbierto}
+        onCerrar={() => setModalPreviewAbierto(false)}
+        boletin={boletin}
+      />
+
+      <ModalAdministracionUsuarios
+        abierto={modalUsuariosAbierto}
+        onCerrar={() => setModalUsuariosAbierto(false)}
+        usuarioActual={usuarioDirectivo}
+      />
+    </div>
+  );
+}

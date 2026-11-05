@@ -1,0 +1,45 @@
+@import "tailwindcss";
+
+@layer base {
+  :root {
+    --font-display: 'Plus Jakarta Sans', 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    --font-mono: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    --vf-blue-bright: #007DC5;
+    --vf-blue-deep: #034EA2;
+    --vf-magenta: #ED145B;
+    --vf-dark: #0F172A;
+    --vf-gray: #64748B;
+  }
+
+  body {
+    font-family: var(--font-sans);
+    background-color: #F4F7FB;
+    color: #0F172A;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    letter-spacing: 0em;
+  }
+
+  h1, h2, h3, .font-display {
+    font-family: var(--font-display);
+    letter-spacing: -0.01em;
+  }
+
+  /* Tipografía numérica y de horarios limpia, moderna y geométrica (sin ceros punteados de máquina de escribir) */
+  .font-mono-tabular,
+  .font-mono {
+    font-family: var(--font-sans) !important;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: 0em;
+  }
+}
+
+@media print {
+  .no-print {
+    display: none !important;
+  }
+  body {
+    background: #ffffff !important;
+  }
+}
