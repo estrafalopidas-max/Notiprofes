@@ -586,6 +586,12 @@ async function iniciarServidor() {
   const publicDirPath = path.resolve(process.cwd(), 'public');
   app.use('/public', express.static(publicDirPath));
   app.use('/assets', express.static(path.join(publicDirPath, 'assets')));
+  app.get('/favicon.ico', (_req, res) => {
+    res.sendFile(path.join(publicDirPath, 'favicon.ico'));
+  });
+  app.get('/favicon.png', (_req, res) => {
+    res.sendFile(path.join(publicDirPath, 'favicon.png'));
+  });
 
   // =========================================================================
   // ENDPOINTS DE AUTENTICACIÓN INDIVIDUAL Y GESTIÓN DE ROLES (BLINDADOS RBAC)

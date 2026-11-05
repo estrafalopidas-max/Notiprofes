@@ -189,7 +189,7 @@ export const GuiaDespliegueNas: React.FC<GuiaDespliegueNasProps> = ({ boletin })
               Vista Previa en Vivo del HTML Público (N° {boletin.numero})
             </h2>
             <span className="text-xs text-[#939598] font-mono-tabular font-semibold">
-              Auto-refresh: 60s
+              Vista Autónoma Persistente
             </span>
           </div>
           <div className="border border-slate-200 rounded-xl h-[520px] overflow-hidden bg-slate-100">

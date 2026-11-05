@@ -50,8 +50,27 @@ export const VistaBoletinOficial: React.FC<VistaBoletinOficialProps> = ({
 }) => {
   const [busqueda, setBusqueda] = useState('');
   const [diaId, setDiaId] = useState('todos');
-  const [modoVista, setModoVista] = useState<'ejecutiva' | 'tabla'>('ejecutiva');
+  const [modoVista, setModoVista] = useState<'ejecutiva' | 'tabla'>(() => {
+    try {
+      return (
+        (localStorage.getItem('notiprofes_modo_vista') as
+          | 'ejecutiva'
+          | 'tabla') || 'ejecutiva'
+      );
+    } catch {
+      return 'ejecutiva';
+    }
+  });
   const [diasColapsados, setDiasColapsados] = useState<Record<string, boolean>>({});
+
+  const cambiarModoVista = (modo: 'ejecutiva' | 'tabla') => {
+    setModoVista(modo);
+    try {
+      localStorage.setItem('notiprofes_modo_vista', modo);
+    } catch {
+      // Ignorar fallo de cuota local
+    }
+  };
 
   // Detecta el día actual de la semana (Lunes a Viernes) para activarlo en la distribución semanal
   const diaActualId = useMemo(() => {
@@ -422,7 +441,7 @@ export const VistaBoletinOficial: React.FC<VistaBoletinOficialProps> = ({
           <div className="inline-flex rounded-lg border border-slate-300 bg-slate-100 p-0.5">
             <button
               type="button"
-              onClick={() => setModoVista('ejecutiva')}
+              onClick={() => cambiarModoVista('ejecutiva')}
               className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-md transition-colors cursor-pointer ${
                 modoVista === 'ejecutiva'
                   ? 'bg-[#034EA2] text-white shadow-2xs'
@@ -434,7 +453,7 @@ export const VistaBoletinOficial: React.FC<VistaBoletinOficialProps> = ({
             </button>
             <button
               type="button"
-              onClick={() => setModoVista('tabla')}
+              onClick={() => cambiarModoVista('tabla')}
               className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-md transition-colors cursor-pointer ${
                 modoVista === 'tabla'
                   ? 'bg-[#034EA2] text-white shadow-2xs'

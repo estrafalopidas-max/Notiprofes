@@ -739,6 +739,7 @@ export default function App() {
                 )}
               </button>
 
+
               <button
                 type="button"
                 title="Programación Semanal"
@@ -1075,6 +1076,7 @@ export default function App() {
               esDirectivoAutenticado={Boolean(usuarioDirectivo)}
             />
           )}
+
 
           {vistaActiva === 'editor' && (
             <PanelEditorColaborativo

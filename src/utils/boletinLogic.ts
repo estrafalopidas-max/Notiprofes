@@ -796,7 +796,8 @@ export function generarHtmlPublicoBoletin(boletin: BoletinSemanal): string {
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <meta http-equiv="refresh" content="60" />
+  <link rel="icon" type="image/png" href="/public/favicon.png" />
+  <link rel="apple-touch-icon" href="/public/favicon.png" />
   <title>NOTIPROFES N° ${boletin.numero} - I.E. Villa Flora</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -1921,23 +1922,48 @@ export function generarHtmlPublicoBoletin(boletin: BoletinSemanal): string {
       var tabla = document.getElementById('contenedor-vista-tabla');
       var btnGrafica = document.getElementById('btn-vista-grafica');
       var btnTabla = document.getElementById('btn-vista-tabla');
+      if (!grafica || !tabla || !btnGrafica || !btnTabla) return;
+
       if (modo === 'tabla') {
         grafica.classList.add('oculto');
         tabla.classList.remove('oculto');
         btnGrafica.classList.remove('activo');
         btnTabla.classList.add('activo');
+        try { localStorage.setItem('notiprofes_vista_publica', 'tabla'); } catch (e) {}
       } else {
         tabla.classList.add('oculto');
         grafica.classList.remove('oculto');
         btnTabla.classList.remove('activo');
         btnGrafica.classList.add('activo');
+        try { localStorage.setItem('notiprofes_vista_publica', 'grafica'); } catch (e) {}
       }
     }
-    try {
-      if (window.history && window.history.replaceState && window.location.pathname !== '/') {
-        window.history.replaceState({}, document.title, '/');
+
+    document.addEventListener('DOMContentLoaded', function() {
+      // 1. Restaurar modo de vista seleccionado (Tabla o Gráfica)
+      try {
+        var vistaGuardada = localStorage.getItem('notiprofes_vista_publica');
+        if (vistaGuardada === 'tabla') {
+          cambiarVista('tabla');
+        }
+      } catch (e) {}
+
+      // 2. Restaurar y monitorear el despliegue del Calendario Oficial y Festivos
+      var calDetails = document.querySelector('.calendario-details');
+      if (calDetails) {
+        try {
+          var calAbierto = localStorage.getItem('notiprofes_cal_abierto');
+          if (calAbierto === '1') {
+            calDetails.open = true;
+          }
+          calDetails.addEventListener('toggle', function() {
+            try {
+              localStorage.setItem('notiprofes_cal_abierto', calDetails.open ? '1' : '0');
+            } catch (e) {}
+          });
+        } catch (e) {}
       }
-    } catch (e) {}
+    });
   </script>
 </body>
 </html>`;
