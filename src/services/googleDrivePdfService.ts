@@ -23,23 +23,240 @@ const auth = getAuth(app);
 const provider = new GoogleAuthProvider();
 SCOPES.forEach((scope) => provider.addScope(scope));
 
-// Caché en memoria para el token OAuth (nunca en localStorage ni sessionStorage por seguridad)
+// Caché en memoria para el token OAuth y perfil de usuario (nunca en localStorage ni sessionStorage por seguridad)
 let isSigningIn = false;
 let cachedAccessToken: string | null = null;
+let cachedUserEmail: string | null = null;
+
+export interface PerfilGoogleConectado {
+  email: string | null;
+  displayName: string | null;
+  metodo?: 'firebase' | 'gis';
+}
+
+export interface InfoDominioAutorizacion {
+  hostname: string;
+  origin: string;
+  truenasHostname: string;
+  truenasOrigin: string;
+  projectId: string;
+  oAuthClientId: string;
+  firebaseAuthSettingsUrl: string;
+  googleCloudCredentialsUrl: string;
+}
+
+/**
+ * Detecta en tiempo real el dominio y origen actual desde el cual se ejecuta la aplicación
+ * e incluye la referencia preconfigurada del servidor TrueNAS SCALE (Tailscale HTTPS).
+ */
+export function obtenerInfoDominioAutorizacion(): InfoDominioAutorizacion {
+  const hostname =
+    typeof window !== 'undefined' && window.location?.hostname
+      ? window.location.hostname
+      : 'localhost';
+  const origin =
+    typeof window !== 'undefined' && window.location?.origin
+      ? window.location.origin
+      : 'http://localhost:3000';
+  const truenasHostname = 'truenas-scale.tailbc79af.ts.net';
+  const truenasOrigin = 'https://truenas-scale.tailbc79af.ts.net:8443';
+  const projectId = firebaseConfig.projectId || 'gen-lang-client-0068542424';
+  const oAuthClientId =
+    (firebaseConfig as { oAuthClientId?: string }).oAuthClientId || '';
+
+  return {
+    hostname,
+    origin,
+    truenasHostname,
+    truenasOrigin,
+    projectId,
+    oAuthClientId,
+    firebaseAuthSettingsUrl: `https://console.firebase.google.com/project/${projectId}/authentication/settings`,
+    googleCloudCredentialsUrl: `https://console.cloud.google.com/apis/credentials?project=${projectId}`,
+  };
+}
+
+// Declaración mínima de tipos para Google Identity Services (GIS) en window.google
+interface GisTokenResponse {
+  access_token?: string;
+  error?: string;
+  error_description?: string;
+}
+
+interface GisTokenClient {
+  requestAccessToken: (overrideConfig?: { prompt?: string }) => void;
+}
+
+declare global {
+  interface Window {
+    google?: {
+      accounts?: {
+        oauth2?: {
+          initTokenClient: (config: {
+            client_id: string;
+            scope: string;
+            callback: (response: GisTokenResponse) => void;
+            error_callback?: (err: { type?: string; message?: string }) => void;
+          }) => GisTokenClient;
+          revoke?: (token: string, done?: () => void) => void;
+        };
+      };
+    };
+  }
+}
+
+let promesaScriptGis: Promise<void> | null = null;
+
+function cargarScriptGoogleIdentityServices(): Promise<void> {
+  if (typeof window === 'undefined') {
+    return Promise.reject(new Error('Entorno de navegador no disponible.'));
+  }
+  if (window.google?.accounts?.oauth2) {
+    return Promise.resolve();
+  }
+  if (promesaScriptGis) {
+    return promesaScriptGis;
+  }
+
+  promesaScriptGis = new Promise<void>((resolve, reject) => {
+    const scriptExistente = document.querySelector(
+      'script[src="https://accounts.google.com/gsi/client"]'
+    ) as HTMLScriptElement | null;
+
+    if (scriptExistente) {
+      scriptExistente.addEventListener('load', () => resolve());
+      scriptExistente.addEventListener('error', () =>
+        reject(new Error('No se pudo cargar Google Identity Services.'))
+      );
+      return;
+    }
+
+    const script = document.createElement('script');
+    script.src = 'https://accounts.google.com/gsi/client';
+    script.async = true;
+    script.defer = true;
+    script.onload = () => resolve();
+    script.onerror = () => {
+      promesaScriptGis = null;
+      reject(new Error('No se pudo cargar el script oficial de Google Identity Services.'));
+    };
+    document.head.appendChild(script);
+  });
+
+  return promesaScriptGis;
+}
+
+/**
+ * Respaldo directo mediante Google Identity Services (OAuth 2.0 Token Client)
+ * cuando Firebase Auth rechaza el dominio actual con auth/unauthorized-domain.
+ */
+export async function conectarConGoogleIdentityServices(): Promise<{
+  user: PerfilGoogleConectado;
+  accessToken: string;
+}> {
+  const { oAuthClientId, hostname } = obtenerInfoDominioAutorizacion();
+  if (!oAuthClientId) {
+    throw new Error(`DOMINIO_NO_AUTORIZADO:${hostname}`);
+  }
+
+  await cargarScriptGoogleIdentityServices();
+
+  const oauth2 = window.google?.accounts?.oauth2;
+  if (!oauth2) {
+    throw new Error(`DOMINIO_NO_AUTORIZADO:${hostname}`);
+  }
+
+  return new Promise((resolve, reject) => {
+    const tokenClient = oauth2.initTokenClient({
+      client_id: oAuthClientId,
+      scope: `${SCOPES.join(' ')} email profile`,
+      callback: async (resp: GisTokenResponse) => {
+        if (resp.error || !resp.access_token) {
+          reject(
+            new Error(
+              `DOMINIO_NO_AUTORIZADO:${hostname}:${resp.error_description || resp.error || 'Acceso OAuth rechazado'}`
+            )
+          );
+          return;
+        }
+
+        cachedAccessToken = resp.access_token;
+
+        // Consultar el correo de la cuenta Google autorizada
+        let emailDetectado = 'Cuenta Google autorizada (GIS)';
+        let nombreDetectado = 'Cuenta Google activa';
+        try {
+          const infoResp = await fetch(
+            'https://www.googleapis.com/oauth2/v3/userinfo',
+            {
+              headers: {
+                Authorization: `Bearer ${resp.access_token}`,
+              },
+            }
+          );
+          if (infoResp.ok) {
+            const infoData = (await infoResp.json()) as {
+              email?: string;
+              name?: string;
+            };
+            if (infoData.email) emailDetectado = infoData.email;
+            if (infoData.name) nombreDetectado = infoData.name;
+          }
+        } catch {
+          // Conserva etiqueta por defecto si userinfo no responde
+        }
+
+        cachedUserEmail = emailDetectado;
+        resolve({
+          user: {
+            email: emailDetectado,
+            displayName: nombreDetectado,
+            metodo: 'gis',
+          },
+          accessToken: resp.access_token,
+        });
+      },
+      error_callback: (err) => {
+        reject(
+          new Error(
+            `DOMINIO_NO_AUTORIZADO:${hostname}:${err?.message || err?.type || 'Popup cerrado o bloqueado'}`
+          )
+        );
+      },
+    });
+
+    tokenClient.requestAccessToken({ prompt: 'consent' });
+  });
+}
 
 export const initGoogleDriveAuth = (
-  onAuthSuccess?: (user: User, token: string) => void,
+  onAuthSuccess?: (user: PerfilGoogleConectado, token: string) => void,
   onAuthFailure?: () => void
 ) => {
   return onAuthStateChanged(auth, async (user: User | null) => {
-    if (user) {
-      if (cachedAccessToken) {
-        if (onAuthSuccess) onAuthSuccess(user, cachedAccessToken);
-      } else if (!isSigningIn) {
-        cachedAccessToken = null;
-        if (onAuthFailure) onAuthFailure();
+    if (user && cachedAccessToken) {
+      if (onAuthSuccess) {
+        onAuthSuccess(
+          {
+            email: user.email,
+            displayName: user.displayName,
+            metodo: 'firebase',
+          },
+          cachedAccessToken
+        );
       }
-    } else {
+    } else if (cachedAccessToken && cachedUserEmail) {
+      if (onAuthSuccess) {
+        onAuthSuccess(
+          {
+            email: cachedUserEmail,
+            displayName: cachedUserEmail,
+            metodo: 'gis',
+          },
+          cachedAccessToken
+        );
+      }
+    } else if (!isSigningIn) {
       cachedAccessToken = null;
       if (onAuthFailure) onAuthFailure();
     }
@@ -47,20 +264,50 @@ export const initGoogleDriveAuth = (
 };
 
 export const conectarGoogleDrive = async (): Promise<{
-  user: User;
+  user: PerfilGoogleConectado;
   accessToken: string;
 } | null> => {
   try {
     isSigningIn = true;
-    const result = await signInWithPopup(auth, provider);
-    const credential = GoogleAuthProvider.credentialFromResult(result);
-    if (!credential?.accessToken) {
-      throw new Error(
-        'No se recibió el token de acceso de Google Drive tras iniciar sesión.'
-      );
+    try {
+      const result = await signInWithPopup(auth, provider);
+      const credential = GoogleAuthProvider.credentialFromResult(result);
+      if (!credential?.accessToken) {
+        throw new Error(
+          'No se recibió el token de acceso de Google Drive tras iniciar sesión.'
+        );
+      }
+      cachedAccessToken = credential.accessToken;
+      cachedUserEmail = result.user.email || result.user.displayName || 'Cuenta Google activa';
+      return {
+        user: {
+          email: result.user.email,
+          displayName: result.user.displayName,
+          metodo: 'firebase',
+        },
+        accessToken: cachedAccessToken,
+      };
+    } catch (firebaseErr: unknown) {
+      const msgFirebase =
+        firebaseErr instanceof Error ? firebaseErr.message : String(firebaseErr);
+      const codigoFirebase = (firebaseErr as { code?: string })?.code || '';
+
+      // Si Firebase bloquea por auth/unauthorized-domain (ej. nuevo contenedor TrueNAS o dominio preview),
+      // activar automáticamente el respaldo directo con Google Identity Services (GIS)
+      if (
+        codigoFirebase.includes('unauthorized-domain') ||
+        msgFirebase.includes('unauthorized-domain')
+      ) {
+        try {
+          return await conectarConGoogleIdentityServices();
+        } catch {
+          const { hostname } = obtenerInfoDominioAutorizacion();
+          throw new Error(`DOMINIO_NO_AUTORIZADO:${hostname}`);
+        }
+      }
+
+      throw firebaseErr;
     }
-    cachedAccessToken = credential.accessToken;
-    return { user: result.user, accessToken: cachedAccessToken };
   } finally {
     isSigningIn = false;
   }
@@ -71,8 +318,16 @@ export const obtenerTokenGoogleDrive = (): string | null => {
 };
 
 export const desconectarGoogleDrive = async (): Promise<void> => {
+  try {
+    if (cachedAccessToken && window.google?.accounts?.oauth2?.revoke) {
+      window.google.accounts.oauth2.revoke(cachedAccessToken);
+    }
+  } catch {
+    // Ignorar error de revocación GIS
+  }
   await auth.signOut();
   cachedAccessToken = null;
+  cachedUserEmail = null;
 };
 
 const NOMBRE_CARPETA_INSTITUCIONAL = 'NotiProfes Oficial - I.E. Villa Flora';

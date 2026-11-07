@@ -17,6 +17,7 @@ import {
   Mail,
   RefreshCw,
   Send,
+  ShieldCheck,
   Sparkles,
   X,
 } from 'lucide-react';
@@ -27,6 +28,7 @@ import {
 } from '../types/notiprofes';
 import { generarHtmlPublicoBoletin } from '../utils/boletinLogic';
 import {
+  conectarConGoogleIdentityServices,
   conectarGoogleDrive,
   desconectarGoogleDrive,
   extraerIdCarpetaDrive,
@@ -34,6 +36,7 @@ import {
   initGoogleDriveAuth,
   listarCarpetasDriveDisponibles,
   obtenerAnioBoletin,
+  obtenerInfoDominioAutorizacion,
   obtenerTokenGoogleDrive,
   sincronizarPdfBoletinEnGoogleDrive,
 } from '../services/googleDrivePdfService';
@@ -94,6 +97,16 @@ export const ModalPublicacionNube: React.FC<ModalPublicacionNubeProps> = ({
     tipo: 'ok' | 'error';
     texto: string;
   } | null>(null);
+  const [mostrarDetectorDominio, setMostrarDetectorDominio] =
+    useState<boolean>(false);
+  const [copiadoDominioActual, setCopiadoDominioActual] =
+    useState<boolean>(false);
+  const [copiadoTruenasHost, setCopiadoTruenasHost] =
+    useState<boolean>(false);
+  const [copiadoTruenasOrigin, setCopiadoTruenasOrigin] =
+    useState<boolean>(false);
+
+  const infoDominio = useMemo(() => obtenerInfoDominioAutorizacion(), []);
 
   // Estados de vinculación de carpeta institucional por año lectivo (ej. "Villa Flora 2026", "Villa Flora 2027")
   const [carpetasPorAnio, setCarpetasPorAnio] = useState<
@@ -393,6 +406,25 @@ export const ModalPublicacionNube: React.FC<ModalPublicacionNubeProps> = ({
     URL.revokeObjectURL(urlDescarga);
   };
 
+  const handleCopiarDominioActual = () => {
+    if (!infoDominio.hostname) return;
+    navigator.clipboard?.writeText(infoDominio.hostname);
+    setCopiadoDominioActual(true);
+    setTimeout(() => setCopiadoDominioActual(false), 2500);
+  };
+
+  const handleCopiarTruenasHost = () => {
+    navigator.clipboard?.writeText(infoDominio.truenasHostname);
+    setCopiadoTruenasHost(true);
+    setTimeout(() => setCopiadoTruenasHost(false), 2500);
+  };
+
+  const handleCopiarTruenasOrigin = () => {
+    navigator.clipboard?.writeText(infoDominio.truenasOrigin);
+    setCopiadoTruenasOrigin(true);
+    setTimeout(() => setCopiadoTruenasOrigin(false), 2500);
+  };
+
   const handleConectarGoogleDrive = async () => {
     setConectandoDrive(true);
     setMensajeDrivePdf(null);
@@ -400,6 +432,7 @@ export const ModalPublicacionNube: React.FC<ModalPublicacionNubeProps> = ({
       const res = await conectarGoogleDrive();
       if (res) {
         setNeedsDriveAuth(false);
+        setMostrarDetectorDominio(false);
         setCuentaGoogleCorreo(
           res.user.email || res.user.displayName || 'Cuenta Google activa'
         );
@@ -410,10 +443,56 @@ export const ModalPublicacionNube: React.FC<ModalPublicacionNubeProps> = ({
       }
     } catch (err: unknown) {
       const detalle =
-        err instanceof Error ? err.message : 'No se pudo completar el inicio de sesión con Google.';
+        err instanceof Error
+          ? err.message
+          : 'No se pudo completar el inicio de sesión con Google.';
+      if (
+        detalle.startsWith('DOMINIO_NO_AUTORIZADO:') ||
+        detalle.includes('auth/unauthorized-domain')
+      ) {
+        setMostrarDetectorDominio(true);
+        setMensajeDrivePdf({
+          tipo: 'error',
+          texto: `El dominio actual (${infoDominio.hostname}) aún no está registrado en los dominios autorizados de Firebase / Google Cloud. Copia el dominio detectado abajo con 1 clic y agrégalo en Firebase Console → Authentication → Settings → Authorized domains.`,
+        });
+      } else {
+        setMensajeDrivePdf({
+          tipo: 'error',
+          texto: `Conexión con Google Drive cancelada o fallida: ${detalle}`,
+        });
+      }
+    } finally {
+      setConectandoDrive(false);
+    }
+  };
+
+  const handleConectarDirectoGIS = async () => {
+    setConectandoDrive(true);
+    setMensajeDrivePdf(null);
+    try {
+      const res = await conectarConGoogleIdentityServices();
+      if (res) {
+        setNeedsDriveAuth(false);
+        setMostrarDetectorDominio(false);
+        setCuentaGoogleCorreo(
+          res.user.email || res.user.displayName || 'Cuenta Google activa (OAuth Directo)'
+        );
+        setMensajeDrivePdf({
+          tipo: 'ok',
+          texto: `Cuenta Google Drive conectada vía Google Identity Services (${res.user.email || 'autorizada'}).`,
+        });
+      }
+    } catch (err: unknown) {
+      const detalle =
+        err instanceof Error
+          ? err.message
+          : 'No se pudo completar el flujo directo de Google Identity Services.';
+      setMostrarDetectorDominio(true);
       setMensajeDrivePdf({
         tipo: 'error',
-        texto: `Conexión con Google Drive cancelada o fallida: ${detalle}`,
+        texto: detalle.startsWith('DOMINIO_NO_AUTORIZADO:')
+          ? `Para autorizar este dominio (${infoDominio.hostname}), cópialo en el panel detector inferior y agrégalo en Firebase Console o Google Cloud Console.`
+          : `Conexión OAuth directa cancelada o bloqueada: ${detalle}`,
       });
     } finally {
       setConectandoDrive(false);
@@ -897,46 +976,70 @@ export const ModalPublicacionNube: React.FC<ModalPublicacionNubeProps> = ({
               )}
             </div>
 
-            {/* Estado de autenticación con Google Drive */}
-            <div className="flex flex-wrap items-center justify-between gap-2 bg-white p-3 rounded-xl border border-emerald-200/80">
+            {/* Estado de autenticación con Google Drive + Respaldo GIS + Detector de Dominio */}
+            <div className="bg-white p-3 rounded-xl border border-emerald-200/80 space-y-2.5">
               {needsDriveAuth ? (
-                <div className="flex flex-wrap items-center justify-between gap-3 w-full">
+                <div className="flex flex-wrap items-center justify-between gap-2.5 w-full">
                   <span className="text-xs font-medium text-slate-700">
                     Autoriza tu cuenta de Google para crear o actualizar el PDF oficial en tu unidad de Drive:
                   </span>
-                  <button
-                    type="button"
-                    disabled={conectandoDrive}
-                    onClick={handleConectarGoogleDrive}
-                    className="inline-flex items-center gap-2.5 px-3.5 py-2 rounded-lg bg-white hover:bg-slate-50 text-slate-800 border border-slate-300 shadow-2xs text-xs font-bold transition-all cursor-pointer disabled:opacity-60"
-                  >
-                    <svg
-                      version="1.1"
-                      xmlns="http://www.w3.org/2000/svg"
-                      viewBox="0 0 48 48"
-                      className="w-4 h-4 shrink-0"
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      disabled={conectandoDrive}
+                      onClick={handleConectarGoogleDrive}
+                      className="inline-flex items-center gap-2 px-3.5 py-2 rounded-lg bg-white hover:bg-slate-50 text-slate-800 border border-slate-300 shadow-2xs text-xs font-bold transition-all cursor-pointer disabled:opacity-60"
                     >
-                      <path
-                        fill="#EA4335"
-                        d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"
-                      />
-                      <path
-                        fill="#4285F4"
-                        d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"
-                      />
-                      <path
-                        fill="#FBBC05"
-                        d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"
-                      />
-                      <path
-                        fill="#34A853"
-                        d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"
-                      />
-                    </svg>
-                    <span>
-                      {conectandoDrive ? 'Conectando...' : 'Sign in with Google'}
-                    </span>
-                  </button>
+                      <svg
+                        version="1.1"
+                        xmlns="http://www.w3.org/2000/svg"
+                        viewBox="0 0 48 48"
+                        className="w-4 h-4 shrink-0"
+                      >
+                        <path
+                          fill="#EA4335"
+                          d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"
+                        />
+                        <path
+                          fill="#4285F4"
+                          d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"
+                        />
+                        <path
+                          fill="#FBBC05"
+                          d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"
+                        />
+                        <path
+                          fill="#34A853"
+                          d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"
+                        />
+                      </svg>
+                      <span>
+                        {conectandoDrive ? 'Conectando...' : 'Sign in with Google'}
+                      </span>
+                    </button>
+
+                    <button
+                      type="button"
+                      disabled={conectandoDrive}
+                      onClick={handleConectarDirectoGIS}
+                      title="Respaldo OAuth 2.0 directo con Google Identity Services (sin depender de Firebase Auth)"
+                      className="inline-flex items-center gap-1.5 px-2.5 py-2 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-900 border border-emerald-300 text-[11px] font-bold transition-colors cursor-pointer disabled:opacity-60"
+                    >
+                      <ShieldCheck className="w-3.5 h-3.5 text-emerald-700 shrink-0" />
+                      <span>OAuth Directo (GIS)</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setMostrarDetectorDominio((prev) => !prev)}
+                      className="inline-flex items-center gap-1 px-2.5 py-2 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 text-[11px] font-semibold transition-colors cursor-pointer"
+                    >
+                      <Globe className="w-3.5 h-3.5 text-slate-600 shrink-0" />
+                      <span>
+                        {mostrarDetectorDominio ? 'Ocultar dominio' : 'Dominio actual'}
+                      </span>
+                    </button>
+                  </div>
                 </div>
               ) : (
                 <div className="flex flex-wrap items-center justify-between gap-2 w-full">
@@ -945,14 +1048,151 @@ export const ModalPublicacionNube: React.FC<ModalPublicacionNubeProps> = ({
                     <span>Google Drive conectado:</span>
                     <strong className="font-bold">{cuentaGoogleCorreo}</strong>
                   </div>
-                  <button
-                    type="button"
-                    onClick={handleDesconectarGoogleDrive}
-                    className="px-2.5 py-1 rounded-lg border border-slate-200 hover:bg-slate-100 text-slate-600 text-[11px] font-semibold inline-flex items-center gap-1 cursor-pointer"
-                  >
-                    <LogOut className="w-3 h-3" />
-                    <span>Cambiar cuenta</span>
-                  </button>
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => setMostrarDetectorDominio((prev) => !prev)}
+                      className="px-2.5 py-1 rounded-lg border border-slate-200 hover:bg-slate-100 text-slate-600 text-[11px] font-semibold inline-flex items-center gap-1 cursor-pointer"
+                    >
+                      <Globe className="w-3 h-3" />
+                      <span>Dominio actual</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleDesconectarGoogleDrive}
+                      className="px-2.5 py-1 rounded-lg border border-slate-200 hover:bg-slate-100 text-slate-600 text-[11px] font-semibold inline-flex items-center gap-1 cursor-pointer"
+                    >
+                      <LogOut className="w-3 h-3" />
+                      <span>Cambiar cuenta</span>
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Panel Detector de Dominio Actual (AI Studio Preview / TrueNAS / Cloudflare Tunnel) */}
+              {mostrarDetectorDominio && (
+                <div className="bg-amber-50/90 border border-amber-300 rounded-xl p-3 space-y-2 text-[11px] text-amber-950">
+                  <div className="flex items-start justify-between gap-2 flex-wrap">
+                    <div className="font-bold flex items-center gap-1.5 text-amber-900">
+                      <ShieldCheck className="w-4 h-4 text-amber-700 shrink-0" />
+                      <span>
+                        Detector del Dominio Actual (Blindaje AI Studio + TrueNAS)
+                      </span>
+                    </div>
+                    <span className="px-2 py-0.5 rounded bg-amber-100 border border-amber-300 font-mono-tabular text-[10px] font-bold text-amber-900">
+                      Proyecto: {infoDominio.projectId}
+                    </span>
+                  </div>
+
+                  <p className="text-amber-900/90 leading-relaxed">
+                    Si aparece <code>auth/unauthorized-domain</code> al conectar aquí o en tu servidor <strong>TrueNAS</strong>, copia este dominio exacto y agrégalo en <strong>Firebase Console → Authentication → Settings → Authorized domains</strong>:
+                  </p>
+
+                  <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+                    <div className="flex-1 bg-white border border-amber-300 rounded-lg px-3 py-1.5 font-mono-tabular text-xs font-bold text-slate-900 select-all break-all flex items-center justify-between gap-2">
+                      <span>{infoDominio.hostname}</span>
+                      <span className="text-[10px] font-normal text-slate-400 shrink-0">
+                        (Dominio en uso)
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={handleCopiarDominioActual}
+                      className="px-3 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold inline-flex items-center justify-center gap-1.5 shrink-0 cursor-pointer"
+                    >
+                      {copiadoDominioActual ? (
+                        <>
+                          <Check className="w-3.5 h-3.5" />
+                          <span>¡Dominio copiado!</span>
+                        </>
+                      ) : (
+                        <>
+                          <Copy className="w-3.5 h-3.5" />
+                          <span>Copiar actual</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+
+                  {/* Dominio preconfigurado del servidor TrueNAS SCALE (Tailscale HTTPS) */}
+                  <div className="bg-white/90 border border-amber-300/90 rounded-lg p-2.5 space-y-1.5">
+                    <div className="text-[10px] font-bold uppercase tracking-wider text-amber-900">
+                      Servidor TrueNAS SCALE (Tailscale HTTPS configurado):
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      <div className="flex items-center justify-between gap-1.5 bg-amber-50/70 border border-amber-200 rounded-md px-2.5 py-1">
+                        <div className="min-w-0">
+                          <span className="block text-[9px] font-bold text-amber-800">
+                            Para Firebase Auth (sin puerto):
+                          </span>
+                          <code className="text-[11px] font-mono-tabular font-bold text-slate-900 truncate block">
+                            {infoDominio.truenasHostname}
+                          </code>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={handleCopiarTruenasHost}
+                          className="px-2 py-1 rounded bg-amber-600 hover:bg-amber-700 text-white text-[10px] font-bold inline-flex items-center gap-1 shrink-0 cursor-pointer"
+                        >
+                          {copiadoTruenasHost ? (
+                            <Check className="w-3 h-3" />
+                          ) : (
+                            <Copy className="w-3 h-3" />
+                          )}
+                          <span>{copiadoTruenasHost ? 'Copiado' : 'Copiar'}</span>
+                        </button>
+                      </div>
+
+                      <div className="flex items-center justify-between gap-1.5 bg-amber-50/70 border border-amber-200 rounded-md px-2.5 py-1">
+                        <div className="min-w-0">
+                          <span className="block text-[9px] font-bold text-emerald-800">
+                            Para Google Cloud OAuth (con puerto):
+                          </span>
+                          <code className="text-[11px] font-mono-tabular font-bold text-slate-900 truncate block">
+                            {infoDominio.truenasOrigin}
+                          </code>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={handleCopiarTruenasOrigin}
+                          className="px-2 py-1 rounded bg-emerald-700 hover:bg-emerald-800 text-white text-[10px] font-bold inline-flex items-center gap-1 shrink-0 cursor-pointer"
+                        >
+                          {copiadoTruenasOrigin ? (
+                            <Check className="w-3 h-3" />
+                          ) : (
+                            <Copy className="w-3 h-3" />
+                          )}
+                          <span>{copiadoTruenasOrigin ? 'Copiado' : 'Copiar'}</span>
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-wrap items-center justify-between gap-2 pt-1 border-t border-amber-200/80">
+                    <div className="flex flex-wrap items-center gap-3">
+                      <a
+                        href={infoDominio.firebaseAuthSettingsUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1 font-bold text-[#005a9e] hover:underline"
+                      >
+                        <span>1. Abrir Dominios Autorizados en Firebase</span>
+                        <ExternalLink className="w-3 h-3" />
+                      </a>
+                      <a
+                        href={infoDominio.googleCloudCredentialsUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1 font-bold text-emerald-800 hover:underline"
+                      >
+                        <span>2. Orígenes JS en Google Cloud OAuth</span>
+                        <ExternalLink className="w-3 h-3" />
+                      </a>
+                    </div>
+                    <span className="text-[10px] text-amber-800">
+                      Respaldo GIS activo automáticamente ante bloqueo de Firebase
+                    </span>
+                  </div>
                 </div>
               )}
             </div>
