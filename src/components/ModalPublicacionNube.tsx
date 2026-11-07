@@ -13,10 +13,10 @@ import {
   FolderOpen,
   Globe,
   Link2,
-  LogOut,
   Mail,
   RefreshCw,
   Send,
+  Settings,
   ShieldCheck,
   Sparkles,
   X,
@@ -28,18 +28,85 @@ import {
 } from '../types/notiprofes';
 import { generarHtmlPublicoBoletin } from '../utils/boletinLogic';
 import {
-  conectarConGoogleIdentityServices,
-  conectarGoogleDrive,
-  desconectarGoogleDrive,
   extraerIdCarpetaDrive,
   generarPdfBoletinOficial,
-  initGoogleDriveAuth,
-  listarCarpetasDriveDisponibles,
   obtenerAnioBoletin,
-  obtenerInfoDominioAutorizacion,
-  obtenerTokenGoogleDrive,
-  sincronizarPdfBoletinEnGoogleDrive,
 } from '../services/googleDrivePdfService';
+
+// Código listo para copiar y pegar en https://script.google.com (100% gratuito, sin Google Cloud Console ni tarjetas)
+const CODIGO_APPS_SCRIPT_PUENTE_DRIVE = `// PUENTE GRATUITO NOTIPROFES -> GOOGLE DRIVE (SIN GOOGLE CLOUD CONSOLE)
+// 1. Pega este código en https://script.google.com
+// 2. Pulsa "Implementar" -> "Nueva implementación" -> Tipo: "Aplicación web"
+// 3. Ejecutar como: "Yo" | Quién tiene acceso: "Cualquier persona"
+// 4. Copia la URL generada y pégala en NotiProfes.
+
+function doPost(e) {
+  try {
+    var data = JSON.parse(e.postData.contents);
+    var folderName = data.folderName || 'Villa Flora 2026';
+    var fileName = data.fileName || 'NotiProfes_VillaFlora.pdf';
+    var bytes = Utilities.base64Decode(data.pdfBase64);
+    var blob = Utilities.newBlob(bytes, 'application/pdf', fileName);
+
+    // 1. Buscar o crear la carpeta anual (ej. "Villa Flora 2026")
+    var folder = null;
+    if (data.folderId) {
+      try { folder = DriveApp.getFolderById(data.folderId); } catch (err) {}
+    }
+    if (!folder) {
+      var folders = DriveApp.getFoldersByName(folderName);
+      folder = folders.hasNext() ? folders.next() : DriveApp.createFolder(folderName);
+    }
+
+    // 2. Buscar archivo existente en la carpeta para conservar el mismo enlace/ID
+    var existingFiles = folder.getFilesByName(fileName);
+    var file = null;
+    while (existingFiles.hasNext()) {
+      var candidate = existingFiles.next();
+      if (!file) {
+        file = candidate;
+      } else {
+        candidate.setTrashed(true);
+      }
+    }
+
+    // Si existe, actualiza o reemplaza en la misma carpeta y comparte enlace público de lectura
+    if (file) {
+      file.setTrashed(true);
+    }
+    var newFile = folder.createFile(blob);
+    try {
+      newFile.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+    } catch (shareErr) {}
+
+    return ContentService.createTextOutput(JSON.stringify({
+      ok: true,
+      fileId: newFile.getId(),
+      fileName: newFile.getName(),
+      folderId: folder.getId(),
+      folderName: folder.getName(),
+      webViewLink: newFile.getUrl()
+    })).setMimeType(ContentService.MimeType.JSON);
+  } catch (err) {
+    return ContentService.createTextOutput(JSON.stringify({
+      ok: false,
+      error: String(err)
+    })).setMimeType(ContentService.MimeType.JSON);
+  }
+}`;
+
+function convertirBlobABase64(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      const resultado = typeof reader.result === 'string' ? reader.result : '';
+      const base64 = resultado.includes(',') ? resultado.split(',')[1] : resultado;
+      resolve(base64);
+    };
+    reader.onerror = () => reject(new Error('No se pudo convertir el PDF a Base64.'));
+    reader.readAsDataURL(blob);
+  });
+}
 
 interface ConfigCarpetaAnualUI {
   anio: number;
@@ -66,7 +133,6 @@ export const ModalPublicacionNube: React.FC<ModalPublicacionNubeProps> = ({
   abierto,
   onCerrar,
   boletin,
-  usuarioActual,
   tokenSesion,
   onSolicitarLogin,
   onAbrirPrevisualizacion,
@@ -81,32 +147,26 @@ export const ModalPublicacionNube: React.FC<ModalPublicacionNubeProps> = ({
   const [copiadoLink, setCopiadoLink] = useState(false);
   const [copiadoIframe, setCopiadoIframe] = useState(false);
   const [copiadoDriveLink, setCopiadoDriveLink] = useState(false);
+  const [copiadoServidorPdfLink, setCopiadoServidorPdfLink] = useState(false);
+  const [copiadoCodigoScript, setCopiadoCodigoScript] = useState(false);
   const [sincronizando, setSincronizando] = useState(false);
   const [mensajeSincronizado, setMensajeSincronizado] = useState<string | null>(null);
 
-  // Estados de Google Drive (OAuth + Sobrescritura inteligente de PDF sobre mismo ID)
-  const [needsDriveAuth, setNeedsDriveAuth] = useState<boolean>(
-    () => !obtenerTokenGoogleDrive()
-  );
-  const [cuentaGoogleCorreo, setCuentaGoogleCorreo] = useState<string | null>(null);
-  const [conectandoDrive, setConectandoDrive] = useState<boolean>(false);
+  // Estados simplificados de guardado automático de PDF (TrueNAS + Puente Apps Script sin OAuth)
   const [subiendoDrivePdf, setSubiendoDrivePdf] = useState<boolean>(false);
   const [confirmandoSobrescrituraDrive, setConfirmandoSobrescrituraDrive] =
+    useState<boolean>(false);
+  const [mostrarAjustesAvanzadosDrive, setMostrarAjustesAvanzadosDrive] =
+    useState<boolean>(false);
+  const [appsScriptUrl, setAppsScriptUrl] = useState<string>('');
+  const [appsScriptConfigurado, setAppsScriptConfigurado] =
+    useState<boolean>(false);
+  const [guardandoConectorScript, setGuardandoConectorScript] =
     useState<boolean>(false);
   const [mensajeDrivePdf, setMensajeDrivePdf] = useState<{
     tipo: 'ok' | 'error';
     texto: string;
   } | null>(null);
-  const [mostrarDetectorDominio, setMostrarDetectorDominio] =
-    useState<boolean>(false);
-  const [copiadoDominioActual, setCopiadoDominioActual] =
-    useState<boolean>(false);
-  const [copiadoTruenasHost, setCopiadoTruenasHost] =
-    useState<boolean>(false);
-  const [copiadoTruenasOrigin, setCopiadoTruenasOrigin] =
-    useState<boolean>(false);
-
-  const infoDominio = useMemo(() => obtenerInfoDominioAutorizacion(), []);
 
   // Estados de vinculación de carpeta institucional por año lectivo (ej. "Villa Flora 2026", "Villa Flora 2027")
   const [carpetasPorAnio, setCarpetasPorAnio] = useState<
@@ -128,20 +188,10 @@ export const ModalPublicacionNube: React.FC<ModalPublicacionNubeProps> = ({
   const [anioCarpetaSeleccionado, setAnioCarpetaSeleccionado] = useState<number>(
     anioBoletinActual
   );
-  const [entradaCarpetaAnual, setEntradaCarpetaAnual] = useState<string>(
-    `Villa Flora ${anioBoletinActual}`
-  );
   const [nombreCarpetaAnual, setNombreCarpetaAnual] = useState<string>(
     `Villa Flora ${anioBoletinActual}`
   );
   const [guardandoCarpetaAnual, setGuardandoCarpetaAnual] = useState<boolean>(false);
-  const [explorandoCarpetasDrive, setExplorandoCarpetasDrive] =
-    useState<boolean>(false);
-  const [carpetasDriveEncontradas, setCarpetasDriveEncontradas] = useState<
-    Array<{ id: string; name: string }>
-  >([]);
-  const [mostrarSelectorCarpetasDrive, setMostrarSelectorCarpetasDrive] =
-    useState<boolean>(false);
 
   // Estados de notificaciones automáticas por correo SMTP
   const [smtpConfiguradoServidor, setSmtpConfiguradoServidor] = useState(false);
@@ -187,7 +237,14 @@ export const ModalPublicacionNube: React.FC<ModalPublicacionNubeProps> = ({
     return `${origin}/public/schedule?id=${encodeURIComponent(boletin.id)}`;
   }, [boletin.id]);
 
-  // Detectar si el boletín tuvo ediciones posteriores a la última sincronización del PDF en Drive
+  const nombreArchivoPdfOficial = `NotiProfes_N${boletin.numero}_VillaFlora.pdf`;
+
+  const urlDirectaPdfServidor = useMemo(() => {
+    const origin = typeof window !== 'undefined' ? window.location.origin : '';
+    return `${origin}/public/pdf/${nombreArchivoPdfOficial}`;
+  }, [nombreArchivoPdfOficial]);
+
+  // Detectar si el boletín tuvo ediciones posteriores a la última sincronización del PDF
   const tieneCambiosPendientesEnPdfDrive = useMemo(() => {
     if (!boletin.drivePdfInfo?.sincronizadoEn || !boletin.ultimaActualizacion) {
       return false;
@@ -198,20 +255,6 @@ export const ModalPublicacionNube: React.FC<ModalPublicacionNubeProps> = ({
   }, [boletin.drivePdfInfo?.sincronizadoEn, boletin.ultimaActualizacion]);
 
   useEffect(() => {
-    const unsubscribe = initGoogleDriveAuth(
-      (user) => {
-        setNeedsDriveAuth(false);
-        setCuentaGoogleCorreo(user.email || user.displayName || 'Cuenta Google activa');
-      },
-      () => {
-        setNeedsDriveAuth(true);
-        setCuentaGoogleCorreo(null);
-      }
-    );
-    return () => unsubscribe();
-  }, []);
-
-  useEffect(() => {
     setAnioCarpetaSeleccionado(anioBoletinActual);
   }, [anioBoletinActual]);
 
@@ -220,7 +263,6 @@ export const ModalPublicacionNube: React.FC<ModalPublicacionNubeProps> = ({
     let cancelado = false;
     setConfirmandoSobrescrituraDrive(false);
     setMensajeDrivePdf(null);
-    setMostrarSelectorCarpetasDrive(false);
 
     const obtenerLinkCorto = async () => {
       try {
@@ -254,17 +296,17 @@ export const ModalPublicacionNube: React.FC<ModalPublicacionNubeProps> = ({
         if (resp.ok && !cancelado) {
           const data = (await resp.json()) as {
             carpetasPorAnio?: Record<string, ConfigCarpetaAnualUI>;
+            appsScriptUrl?: string;
+            appsScriptConfigurado?: boolean;
           };
+          if (typeof data.appsScriptUrl === 'string') {
+            setAppsScriptUrl(data.appsScriptUrl);
+          }
+          setAppsScriptConfigurado(Boolean(data.appsScriptConfigurado));
           if (data.carpetasPorAnio) {
             setCarpetasPorAnio(data.carpetasPorAnio);
             const confActual = data.carpetasPorAnio[String(anioBoletinActual)];
             if (confActual) {
-              setEntradaCarpetaAnual(
-                confActual.folderInput ||
-                  confActual.folderId ||
-                  confActual.folderName ||
-                  `Villa Flora ${anioBoletinActual}`
-              );
               setNombreCarpetaAnual(
                 confActual.folderName || `Villa Flora ${anioBoletinActual}`
               );
@@ -315,17 +357,12 @@ export const ModalPublicacionNube: React.FC<ModalPublicacionNubeProps> = ({
     };
   }, [abierto, urlPublicSchedule, boletin.numero, tokenSesion, anioBoletinActual]);
 
-  // Sincronizar los campos del formulario cuando el directivo cambia el año en el selector (ej. 2026 ↔ 2027)
   const handleCambiarAnioCarpeta = (nuevoAnio: number) => {
     setAnioCarpetaSeleccionado(nuevoAnio);
     const conf = carpetasPorAnio[String(nuevoAnio)];
     if (conf) {
-      setEntradaCarpetaAnual(
-        conf.folderInput || conf.folderId || conf.folderName || `Villa Flora ${nuevoAnio}`
-      );
       setNombreCarpetaAnual(conf.folderName || `Villa Flora ${nuevoAnio}`);
     } else {
-      setEntradaCarpetaAnual(`Villa Flora ${nuevoAnio}`);
       setNombreCarpetaAnual(`Villa Flora ${nuevoAnio}`);
     }
   };
@@ -374,10 +411,22 @@ export const ModalPublicacionNube: React.FC<ModalPublicacionNubeProps> = ({
   };
 
   const handleCopiarDriveLink = () => {
-    if (!boletin.drivePdfInfo?.webViewLink) return;
-    navigator.clipboard?.writeText(boletin.drivePdfInfo.webViewLink);
+    const link = boletin.drivePdfInfo?.webViewLink || urlDirectaPdfServidor;
+    navigator.clipboard?.writeText(link);
     setCopiadoDriveLink(true);
     setTimeout(() => setCopiadoDriveLink(false), 2500);
+  };
+
+  const handleCopiarServidorPdfLink = () => {
+    navigator.clipboard?.writeText(urlDirectaPdfServidor);
+    setCopiadoServidorPdfLink(true);
+    setTimeout(() => setCopiadoServidorPdfLink(false), 2500);
+  };
+
+  const handleCopiarCodigoAppsScript = () => {
+    navigator.clipboard?.writeText(CODIGO_APPS_SCRIPT_PUENTE_DRIVE);
+    setCopiadoCodigoScript(true);
+    setTimeout(() => setCopiadoCodigoScript(false), 3000);
   };
 
   const handleDescargarHtml = () => {
@@ -406,134 +455,63 @@ export const ModalPublicacionNube: React.FC<ModalPublicacionNubeProps> = ({
     URL.revokeObjectURL(urlDescarga);
   };
 
-  const handleCopiarDominioActual = () => {
-    if (!infoDominio.hostname) return;
-    navigator.clipboard?.writeText(infoDominio.hostname);
-    setCopiadoDominioActual(true);
-    setTimeout(() => setCopiadoDominioActual(false), 2500);
-  };
-
-  const handleCopiarTruenasHost = () => {
-    navigator.clipboard?.writeText(infoDominio.truenasHostname);
-    setCopiadoTruenasHost(true);
-    setTimeout(() => setCopiadoTruenasHost(false), 2500);
-  };
-
-  const handleCopiarTruenasOrigin = () => {
-    navigator.clipboard?.writeText(infoDominio.truenasOrigin);
-    setCopiadoTruenasOrigin(true);
-    setTimeout(() => setCopiadoTruenasOrigin(false), 2500);
-  };
-
-  const handleConectarGoogleDrive = async () => {
-    setConectandoDrive(true);
+  const handleGuardarConectorAppsScript = async () => {
+    if (!tokenSesion) {
+      if (onSolicitarLogin) onSolicitarLogin();
+      return;
+    }
+    setGuardandoConectorScript(true);
     setMensajeDrivePdf(null);
     try {
-      const res = await conectarGoogleDrive();
-      if (res) {
-        setNeedsDriveAuth(false);
-        setMostrarDetectorDominio(false);
-        setCuentaGoogleCorreo(
-          res.user.email || res.user.displayName || 'Cuenta Google activa'
-        );
+      const resp = await fetch('/api/drive/conector', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${tokenSesion}`,
+        },
+        body: JSON.stringify({
+          appsScriptUrl: appsScriptUrl.trim(),
+        }),
+      });
+      const data = await resp.json();
+      if (resp.ok) {
+        setAppsScriptConfigurado(Boolean(data.appsScriptConfigurado));
         setMensajeDrivePdf({
           tipo: 'ok',
-          texto: `Cuenta Google Drive conectada (${res.user.email || 'autorizada'}). Ya puedes sincronizar el PDF oficial.`,
-        });
-      }
-    } catch (err: unknown) {
-      const detalle =
-        err instanceof Error
-          ? err.message
-          : 'No se pudo completar el inicio de sesión con Google.';
-      if (
-        detalle.startsWith('DOMINIO_NO_AUTORIZADO:') ||
-        detalle.includes('auth/unauthorized-domain')
-      ) {
-        setMostrarDetectorDominio(true);
-        setMensajeDrivePdf({
-          tipo: 'error',
-          texto: `El dominio actual (${infoDominio.hostname}) aún no está registrado en los dominios autorizados de Firebase / Google Cloud. Copia el dominio detectado abajo con 1 clic y agrégalo en Firebase Console → Authentication → Settings → Authorized domains.`,
+          texto:
+            data.mensaje ||
+            'Puente con Google Drive guardado correctamente.',
         });
       } else {
         setMensajeDrivePdf({
           tipo: 'error',
-          texto: `Conexión con Google Drive cancelada o fallida: ${detalle}`,
+          texto: data.error || 'No se pudo guardar la URL del puente.',
         });
       }
-    } finally {
-      setConectandoDrive(false);
-    }
-  };
-
-  const handleConectarDirectoGIS = async () => {
-    setConectandoDrive(true);
-    setMensajeDrivePdf(null);
-    try {
-      const res = await conectarConGoogleIdentityServices();
-      if (res) {
-        setNeedsDriveAuth(false);
-        setMostrarDetectorDominio(false);
-        setCuentaGoogleCorreo(
-          res.user.email || res.user.displayName || 'Cuenta Google activa (OAuth Directo)'
-        );
-        setMensajeDrivePdf({
-          tipo: 'ok',
-          texto: `Cuenta Google Drive conectada vía Google Identity Services (${res.user.email || 'autorizada'}).`,
-        });
-      }
-    } catch (err: unknown) {
-      const detalle =
-        err instanceof Error
-          ? err.message
-          : 'No se pudo completar el flujo directo de Google Identity Services.';
-      setMostrarDetectorDominio(true);
+    } catch {
       setMensajeDrivePdf({
         tipo: 'error',
-        texto: detalle.startsWith('DOMINIO_NO_AUTORIZADO:')
-          ? `Para autorizar este dominio (${infoDominio.hostname}), cópialo en el panel detector inferior y agrégalo en Firebase Console o Google Cloud Console.`
-          : `Conexión OAuth directa cancelada o bloqueada: ${detalle}`,
+        texto: 'Error de red al guardar el puente de Google Apps Script.',
       });
     } finally {
-      setConectandoDrive(false);
+      setGuardandoConectorScript(false);
     }
-  };
-
-  const handleDesconectarGoogleDrive = async () => {
-    await desconectarGoogleDrive();
-    setNeedsDriveAuth(true);
-    setCuentaGoogleCorreo(null);
-    setConfirmandoSobrescrituraDrive(false);
-    setMostrarSelectorCarpetasDrive(false);
   };
 
   const handleGuardarCarpetaAnual = async (
-    anioGuardar: number = anioCarpetaSeleccionado,
-    inputPersonalizado?: string,
-    idPersonalizado?: string,
-    nombrePersonalizado?: string
+    anioGuardar: number = anioCarpetaSeleccionado
   ) => {
     if (!tokenSesion) {
-      if (onSolicitarLogin) {
-        onSolicitarLogin();
-      } else {
-        setMensajeDrivePdf({
-          tipo: 'error',
-          texto: 'Inicie sesión con su cuenta directiva para guardar la carpeta anual.',
-        });
-      }
+      if (onSolicitarLogin) onSolicitarLogin();
       return;
     }
 
     setGuardandoCarpetaAnual(true);
     setMensajeDrivePdf(null);
 
-    const valorEntrada = (inputPersonalizado ?? entradaCarpetaAnual).trim();
-    const idDetectado =
-      (idPersonalizado ?? extraerIdCarpetaDrive(valorEntrada)).trim();
     const valorNombre =
-      (nombrePersonalizado ?? nombreCarpetaAnual).trim() ||
-      (!idDetectado && valorEntrada ? valorEntrada : `Villa Flora ${anioGuardar}`);
+      nombreCarpetaAnual.trim() || `Villa Flora ${anioGuardar}`;
+    const idDetectado = extraerIdCarpetaDrive(valorNombre);
 
     try {
       const resp = await fetch('/api/drive/carpetas', {
@@ -544,19 +522,14 @@ export const ModalPublicacionNube: React.FC<ModalPublicacionNubeProps> = ({
         },
         body: JSON.stringify({
           anio: anioGuardar,
-          folderInput: valorEntrada || valorNombre,
+          folderInput: valorNombre,
           folderId: idDetectado,
-          folderName: valorNombre,
+          folderName: idDetectado ? `Villa Flora ${anioGuardar}` : valorNombre,
         }),
       });
       const data = await resp.json();
       if (resp.ok && data.carpetasPorAnio) {
         setCarpetasPorAnio(data.carpetasPorAnio);
-        const confGuardada = data.carpetasPorAnio[String(anioGuardar)];
-        if (confGuardada && anioGuardar === anioCarpetaSeleccionado) {
-          setEntradaCarpetaAnual(confGuardada.folderInput);
-          setNombreCarpetaAnual(confGuardada.folderName);
-        }
         setMensajeDrivePdf({
           tipo: 'ok',
           texto:
@@ -566,7 +539,7 @@ export const ModalPublicacionNube: React.FC<ModalPublicacionNubeProps> = ({
       } else {
         setMensajeDrivePdf({
           tipo: 'error',
-          texto: data.error || 'No se pudo guardar la configuración de carpeta anual.',
+          texto: data.error || 'No se pudo guardar el nombre de carpeta anual.',
         });
       }
     } catch {
@@ -579,57 +552,7 @@ export const ModalPublicacionNube: React.FC<ModalPublicacionNubeProps> = ({
     }
   };
 
-  const handleExplorarCarpetasDrive = async () => {
-    if (needsDriveAuth || !obtenerTokenGoogleDrive()) {
-      setMensajeDrivePdf({
-        tipo: 'error',
-        texto: 'Primero conecta tu cuenta de Google Drive para listar tus carpetas disponibles.',
-      });
-      return;
-    }
-    setExplorandoCarpetasDrive(true);
-    setMensajeDrivePdf(null);
-    try {
-      const lista = await listarCarpetasDriveDisponibles();
-      setCarpetasDriveEncontradas(lista);
-      setMostrarSelectorCarpetasDrive(true);
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : '';
-      if (msg === 'SESION_DRIVE_EXPIRADA' || msg === 'SESION_DRIVE_REQUERIDA') {
-        setNeedsDriveAuth(true);
-      }
-      setMensajeDrivePdf({
-        tipo: 'error',
-        texto: 'No fue posible consultar las carpetas de Google Drive. Verifica tu sesión.',
-      });
-    } finally {
-      setExplorandoCarpetasDrive(false);
-    }
-  };
-
-  const obtenerOpcionesCarpetaBoletinActual = () => {
-    const confAnioBoletin = carpetasPorAnio[String(anioBoletinActual)];
-    // Si el usuario está editando precisamente el año del boletín actual, usar los valores en pantalla
-    if (anioCarpetaSeleccionado === anioBoletinActual) {
-      const idEnPantalla = extraerIdCarpetaDrive(entradaCarpetaAnual);
-      const nombreEnPantalla =
-        nombreCarpetaAnual.trim() ||
-        (!idEnPantalla && entradaCarpetaAnual.trim()
-          ? entradaCarpetaAnual.trim()
-          : `Villa Flora ${anioBoletinActual}`);
-      return {
-        anio: anioBoletinActual,
-        folderId: idEnPantalla || confAnioBoletin?.folderId || '',
-        folderName: nombreEnPantalla,
-      };
-    }
-    return {
-      anio: anioBoletinActual,
-      folderId: confAnioBoletin?.folderId || '',
-      folderName: confAnioBoletin?.folderName || `Villa Flora ${anioBoletinActual}`,
-    };
-  };
-
+  // Guardado automático unificado (Opción 2: Servidor TrueNAS /app/data/pdfs + Opción 1: Puente Google Apps Script)
   const ejecutarSincronizacionPdfDrive = async () => {
     if (!tokenSesion) {
       if (onSolicitarLogin) {
@@ -637,7 +560,7 @@ export const ModalPublicacionNube: React.FC<ModalPublicacionNubeProps> = ({
       } else {
         setMensajeDrivePdf({
           tipo: 'error',
-          texto: 'Inicie sesión con su cuenta directiva para registrar el PDF en el boletín.',
+          texto: 'Inicie sesión con su cuenta directiva para publicar el PDF.',
         });
       }
       return;
@@ -648,68 +571,53 @@ export const ModalPublicacionNube: React.FC<ModalPublicacionNubeProps> = ({
     setMensajeDrivePdf(null);
 
     try {
-      const autorNombre =
-        usuarioActual?.nombre || boletin.actualizadoPor || 'Dirección Institucional';
-      const opcionesCarpeta = obtenerOpcionesCarpetaBoletinActual();
-      const metadata = await sincronizarPdfBoletinEnGoogleDrive(
-        boletin,
-        autorNombre,
-        opcionesCarpeta
-      );
+      const versionNueva = (boletin.drivePdfInfo?.version || 0) + 1;
+      const { blob, fileName } = generarPdfBoletinOficial(boletin, versionNueva);
+      const pdfBase64 = await convertirBlobABase64(blob);
 
-      // Persistir también el folderId y folderName resueltos para este año lectivo en el servidor
-      try {
-        const respCarpeta = await fetch('/api/drive/carpetas', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${tokenSesion}`,
-          },
-          body: JSON.stringify({
-            anio: anioBoletinActual,
-            folderInput:
-              anioCarpetaSeleccionado === anioBoletinActual
-                ? entradaCarpetaAnual.trim() || metadata.folderName
-                : metadata.folderName,
-            folderId: metadata.folderId,
-            folderName: metadata.folderName,
-          }),
-        });
-        if (respCarpeta.ok) {
-          const dataCarpeta = await respCarpeta.json();
-          if (dataCarpeta.carpetasPorAnio) {
-            setCarpetasPorAnio(dataCarpeta.carpetasPorAnio);
-          }
-        }
-      } catch {
-        // Continúa aunque falle el guardado secundario de carpeta
-      }
+      const carpetaObjetivo =
+        carpetasPorAnio[String(anioBoletinActual)]?.folderName ||
+        `Villa Flora ${anioBoletinActual}`;
 
-      if (onGuardarMetadataDrivePdf) {
-        await onGuardarMetadataDrivePdf(metadata);
-      }
-
-      setMensajeDrivePdf({
-        tipo: 'ok',
-        texto:
-          metadata.version > 1
-            ? `¡PDF sobrescrito con éxito sobre el mismo ID de Google Drive (Revisión v${metadata.version}) en la carpeta «${metadata.folderName}»!`
-            : `¡PDF oficial «${metadata.fileName}» guardado en la carpeta anual «${metadata.folderName}» de Google Drive (v1)!`,
+      const resp = await fetch('/api/drive/publicar-pdf', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${tokenSesion}`,
+        },
+        body: JSON.stringify({
+          boletinId: boletin.id,
+          numeroBoletin: boletin.numero,
+          anio: anioBoletinActual,
+          fileName,
+          pdfBase64,
+          folderNameOverride: carpetaObjetivo,
+        }),
       });
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : '';
-      if (msg === 'SESION_DRIVE_REQUERIDA' || msg === 'SESION_DRIVE_EXPIRADA') {
-        setNeedsDriveAuth(true);
+
+      const data = await resp.json();
+      if (resp.ok && data.metadata) {
+        if (onGuardarMetadataDrivePdf) {
+          await onGuardarMetadataDrivePdf(data.metadata as DrivePdfMetadata);
+        }
         setMensajeDrivePdf({
-          tipo: 'error',
-          texto: 'Tu sesión de Google Drive expiró. Pulsa «Conectar con Google Drive» para continuar.',
+          tipo: 'ok',
+          texto:
+            data.mensaje ||
+            `¡PDF oficial guardado automáticamente (Revisión v${versionNueva})!`,
         });
       } else {
         setMensajeDrivePdf({
           tipo: 'error',
-          texto: msg || 'No fue posible sincronizar el PDF con Google Drive.',
+          texto: data.error || 'No fue posible guardar el PDF en el servidor.',
         });
       }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : '';
+      setMensajeDrivePdf({
+        tipo: 'error',
+        texto: msg || 'Error al generar o guardar el PDF oficial.',
+      });
     } finally {
       setSubiendoDrivePdf(false);
     }
@@ -723,16 +631,6 @@ export const ModalPublicacionNube: React.FC<ModalPublicacionNubeProps> = ({
       return;
     }
 
-    if (needsDriveAuth || !obtenerTokenGoogleDrive()) {
-      setNeedsDriveAuth(true);
-      setMensajeDrivePdf({
-        tipo: 'error',
-        texto: 'Primero conecta tu cuenta de Google Drive usando el botón oficial.',
-      });
-      return;
-    }
-
-    // Si ya existe un archivo en Google Drive para este boletín, pedir confirmación explícita antes de sobrescribirlo
     if (boletin.drivePdfInfo?.fileId) {
       setConfirmandoSobrescrituraDrive(true);
       return;
@@ -746,6 +644,10 @@ export const ModalPublicacionNube: React.FC<ModalPublicacionNubeProps> = ({
     setMensajeSincronizado(null);
     try {
       const ok = await onSincronizarPublicacion();
+      // Guardar también el PDF oficial automáticamente al publicar
+      if (tokenSesion) {
+        await ejecutarSincronizacionPdfDrive();
+      }
       const ahora = new Date().toLocaleString('es-CO', {
         day: 'numeric',
         month: 'numeric',
@@ -757,11 +659,11 @@ export const ModalPublicacionNube: React.FC<ModalPublicacionNubeProps> = ({
       setUltimaSincronizacion(ahora);
       if (ok) {
         setMensajeSincronizado(
-          'Boletín publicado y sincronizado en la nube correctamente.'
+          'Boletín y PDF oficial publicados y actualizados automáticamente.'
         );
       } else {
         setMensajeSincronizado(
-          'Sincronización completada con la vista pública actual.'
+          'Sincronización completada con la vista pública y PDF actual.'
         );
       }
       setTimeout(() => setMensajeSincronizado(null), 4000);
@@ -921,7 +823,7 @@ export const ModalPublicacionNube: React.FC<ModalPublicacionNubeProps> = ({
                 </span>
               </div>
               <p className="text-xs text-sky-200/80 font-medium mt-0.5">
-                Enlace corto web, repositorio PDF con ID único en Google Drive y avisos SMTP · I.E. Villa Flora
+                Enlace corto web, guardado automático de PDF (TrueNAS + Google Drive) y avisos SMTP · I.E. Villa Flora
               </p>
             </div>
           </div>
@@ -942,18 +844,18 @@ export const ModalPublicacionNube: React.FC<ModalPublicacionNubeProps> = ({
             </div>
           )}
 
-          {/* SECCIÓN 1: REPOSITORIO OFICIAL PDF EN GOOGLE DRIVE (SOBRESCRITURA INTELIGENTE MISMO ID) */}
+          {/* SECCIÓN 1 SIMPLIFICADA: GUARDADO AUTOMÁTICO DE PDF (TRUENAS + PUENTE GRATUITO GOOGLE DRIVE) */}
           <div className="bg-emerald-50/60 border border-emerald-300/90 rounded-2xl p-4 sm:p-5 space-y-3.5">
             <div className="flex items-start justify-between gap-2 flex-wrap">
               <div className="space-y-0.5">
                 <div className="flex items-center gap-2 text-xs sm:text-sm font-display font-extrabold text-[#065F46]">
                   <FolderCheck className="w-4 h-4 text-emerald-600 shrink-0" />
                   <span>
-                    1. Repositorio PDF en Google Drive (Sobrescritura sobre ID Único)
+                    1. Guardado Automático de PDF Oficial (1 Clic · Sin OAuth)
                   </span>
                 </div>
                 <p className="text-[11px] text-slate-600">
-                  Genera <code className="font-mono-tabular font-bold">NotiProfes_N{boletin.numero}_VillaFlora.pdf</code> dentro de la carpeta anual <strong>«{carpetaActivaBoletin}»</strong> y actualiza siempre el mismo archivo sin romper el enlace compartido.
+                  Guarda y sobrescribe automáticamente <code className="font-mono-tabular font-bold">{nombreArchivoPdfOficial}</code> en la carpeta <strong>«{carpetaActivaBoletin}»</strong> de tu servidor TrueNAS {appsScriptConfigurado ? 'y en tu Google Drive' : '(y opcionalmente en Google Drive)'} sin pedir inicios de sesión.
                 </p>
               </div>
 
@@ -966,467 +868,247 @@ export const ModalPublicacionNube: React.FC<ModalPublicacionNubeProps> = ({
                   }`}
                 >
                   {tieneCambiosPendientesEnPdfDrive
-                    ? `Ediciones pendientes → Actualizar a v${boletin.drivePdfInfo.version + 1}`
-                    : `Sincronizado en Drive · Revisión v${boletin.drivePdfInfo.version}`}
+                    ? `Cambios pendientes → Actualizar a v${boletin.drivePdfInfo.version + 1}`
+                    : `PDF Alojado · Revisión v${boletin.drivePdfInfo.version}`}
                 </span>
               ) : (
                 <span className="px-2.5 py-1 rounded-lg bg-slate-100 text-slate-700 border border-slate-200 text-[11px] font-semibold">
-                  Primera publicación PDF pendiente (v1)
+                  Listo para guardar PDF (v1)
                 </span>
               )}
             </div>
 
-            {/* Estado de autenticación con Google Drive + Respaldo GIS + Detector de Dominio */}
-            <div className="bg-white p-3 rounded-xl border border-emerald-200/80 space-y-2.5">
-              {needsDriveAuth ? (
-                <div className="flex flex-wrap items-center justify-between gap-2.5 w-full">
-                  <span className="text-xs font-medium text-slate-700">
-                    Autoriza tu cuenta de Google para crear o actualizar el PDF oficial en tu unidad de Drive:
-                  </span>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <button
-                      type="button"
-                      disabled={conectandoDrive}
-                      onClick={handleConectarGoogleDrive}
-                      className="inline-flex items-center gap-2 px-3.5 py-2 rounded-lg bg-white hover:bg-slate-50 text-slate-800 border border-slate-300 shadow-2xs text-xs font-bold transition-all cursor-pointer disabled:opacity-60"
-                    >
-                      <svg
-                        version="1.1"
-                        xmlns="http://www.w3.org/2000/svg"
-                        viewBox="0 0 48 48"
-                        className="w-4 h-4 shrink-0"
-                      >
-                        <path
-                          fill="#EA4335"
-                          d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"
-                        />
-                        <path
-                          fill="#4285F4"
-                          d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"
-                        />
-                        <path
-                          fill="#FBBC05"
-                          d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"
-                        />
-                        <path
-                          fill="#34A853"
-                          d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"
-                        />
-                      </svg>
-                      <span>
-                        {conectandoDrive ? 'Conectando...' : 'Sign in with Google'}
-                      </span>
-                    </button>
-
-                    <button
-                      type="button"
-                      disabled={conectandoDrive}
-                      onClick={handleConectarDirectoGIS}
-                      title="Respaldo OAuth 2.0 directo con Google Identity Services (sin depender de Firebase Auth)"
-                      className="inline-flex items-center gap-1.5 px-2.5 py-2 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-900 border border-emerald-300 text-[11px] font-bold transition-colors cursor-pointer disabled:opacity-60"
-                    >
-                      <ShieldCheck className="w-3.5 h-3.5 text-emerald-700 shrink-0" />
-                      <span>OAuth Directo (GIS)</span>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => setMostrarDetectorDominio((prev) => !prev)}
-                      className="inline-flex items-center gap-1 px-2.5 py-2 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 text-[11px] font-semibold transition-colors cursor-pointer"
-                    >
-                      <Globe className="w-3.5 h-3.5 text-slate-600 shrink-0" />
-                      <span>
-                        {mostrarDetectorDominio ? 'Ocultar dominio' : 'Dominio actual'}
-                      </span>
-                    </button>
-                  </div>
-                </div>
-              ) : (
-                <div className="flex flex-wrap items-center justify-between gap-2 w-full">
-                  <div className="flex items-center gap-2 text-xs text-emerald-900 font-semibold">
-                    <span className="w-2 h-2 rounded-full bg-emerald-500" />
-                    <span>Google Drive conectado:</span>
-                    <strong className="font-bold">{cuentaGoogleCorreo}</strong>
-                  </div>
-                  <div className="flex items-center gap-1.5">
-                    <button
-                      type="button"
-                      onClick={() => setMostrarDetectorDominio((prev) => !prev)}
-                      className="px-2.5 py-1 rounded-lg border border-slate-200 hover:bg-slate-100 text-slate-600 text-[11px] font-semibold inline-flex items-center gap-1 cursor-pointer"
-                    >
-                      <Globe className="w-3 h-3" />
-                      <span>Dominio actual</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={handleDesconectarGoogleDrive}
-                      className="px-2.5 py-1 rounded-lg border border-slate-200 hover:bg-slate-100 text-slate-600 text-[11px] font-semibold inline-flex items-center gap-1 cursor-pointer"
-                    >
-                      <LogOut className="w-3 h-3" />
-                      <span>Cambiar cuenta</span>
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              {/* Panel Detector de Dominio Actual (AI Studio Preview / TrueNAS / Cloudflare Tunnel) */}
-              {mostrarDetectorDominio && (
-                <div className="bg-amber-50/90 border border-amber-300 rounded-xl p-3 space-y-2 text-[11px] text-amber-950">
-                  <div className="flex items-start justify-between gap-2 flex-wrap">
-                    <div className="font-bold flex items-center gap-1.5 text-amber-900">
-                      <ShieldCheck className="w-4 h-4 text-amber-700 shrink-0" />
-                      <span>
-                        Detector del Dominio Actual (Blindaje AI Studio + TrueNAS)
-                      </span>
-                    </div>
-                    <span className="px-2 py-0.5 rounded bg-amber-100 border border-amber-300 font-mono-tabular text-[10px] font-bold text-amber-900">
-                      Proyecto: {infoDominio.projectId}
-                    </span>
-                  </div>
-
-                  <p className="text-amber-900/90 leading-relaxed">
-                    Si aparece <code>auth/unauthorized-domain</code> al conectar aquí o en tu servidor <strong>TrueNAS</strong>, copia este dominio exacto y agrégalo en <strong>Firebase Console → Authentication → Settings → Authorized domains</strong>:
-                  </p>
-
-                  <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
-                    <div className="flex-1 bg-white border border-amber-300 rounded-lg px-3 py-1.5 font-mono-tabular text-xs font-bold text-slate-900 select-all break-all flex items-center justify-between gap-2">
-                      <span>{infoDominio.hostname}</span>
-                      <span className="text-[10px] font-normal text-slate-400 shrink-0">
-                        (Dominio en uso)
-                      </span>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={handleCopiarDominioActual}
-                      className="px-3 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold inline-flex items-center justify-center gap-1.5 shrink-0 cursor-pointer"
-                    >
-                      {copiadoDominioActual ? (
-                        <>
-                          <Check className="w-3.5 h-3.5" />
-                          <span>¡Dominio copiado!</span>
-                        </>
-                      ) : (
-                        <>
-                          <Copy className="w-3.5 h-3.5" />
-                          <span>Copiar actual</span>
-                        </>
-                      )}
-                    </button>
-                  </div>
-
-                  {/* Dominio preconfigurado del servidor TrueNAS SCALE (Tailscale HTTPS) */}
-                  <div className="bg-white/90 border border-amber-300/90 rounded-lg p-2.5 space-y-1.5">
-                    <div className="text-[10px] font-bold uppercase tracking-wider text-amber-900">
-                      Servidor TrueNAS SCALE (Tailscale HTTPS configurado):
-                    </div>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                      <div className="flex items-center justify-between gap-1.5 bg-amber-50/70 border border-amber-200 rounded-md px-2.5 py-1">
-                        <div className="min-w-0">
-                          <span className="block text-[9px] font-bold text-amber-800">
-                            Para Firebase Auth (sin puerto):
-                          </span>
-                          <code className="text-[11px] font-mono-tabular font-bold text-slate-900 truncate block">
-                            {infoDominio.truenasHostname}
-                          </code>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={handleCopiarTruenasHost}
-                          className="px-2 py-1 rounded bg-amber-600 hover:bg-amber-700 text-white text-[10px] font-bold inline-flex items-center gap-1 shrink-0 cursor-pointer"
-                        >
-                          {copiadoTruenasHost ? (
-                            <Check className="w-3 h-3" />
-                          ) : (
-                            <Copy className="w-3 h-3" />
-                          )}
-                          <span>{copiadoTruenasHost ? 'Copiado' : 'Copiar'}</span>
-                        </button>
-                      </div>
-
-                      <div className="flex items-center justify-between gap-1.5 bg-amber-50/70 border border-amber-200 rounded-md px-2.5 py-1">
-                        <div className="min-w-0">
-                          <span className="block text-[9px] font-bold text-emerald-800">
-                            Para Google Cloud OAuth (con puerto):
-                          </span>
-                          <code className="text-[11px] font-mono-tabular font-bold text-slate-900 truncate block">
-                            {infoDominio.truenasOrigin}
-                          </code>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={handleCopiarTruenasOrigin}
-                          className="px-2 py-1 rounded bg-emerald-700 hover:bg-emerald-800 text-white text-[10px] font-bold inline-flex items-center gap-1 shrink-0 cursor-pointer"
-                        >
-                          {copiadoTruenasOrigin ? (
-                            <Check className="w-3 h-3" />
-                          ) : (
-                            <Copy className="w-3 h-3" />
-                          )}
-                          <span>{copiadoTruenasOrigin ? 'Copiado' : 'Copiar'}</span>
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="flex flex-wrap items-center justify-between gap-2 pt-1 border-t border-amber-200/80">
-                    <div className="flex flex-wrap items-center gap-3">
-                      <a
-                        href={infoDominio.firebaseAuthSettingsUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="inline-flex items-center gap-1 font-bold text-[#005a9e] hover:underline"
-                      >
-                        <span>1. Abrir Dominios Autorizados en Firebase</span>
-                        <ExternalLink className="w-3 h-3" />
-                      </a>
-                      <a
-                        href={infoDominio.googleCloudCredentialsUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="inline-flex items-center gap-1 font-bold text-emerald-800 hover:underline"
-                      >
-                        <span>2. Orígenes JS en Google Cloud OAuth</span>
-                        <ExternalLink className="w-3 h-3" />
-                      </a>
-                    </div>
-                    <span className="text-[10px] text-amber-800">
-                      Respaldo GIS activo automáticamente ante bloqueo de Firebase
-                    </span>
-                  </div>
-                </div>
-              )}
-            </div>
-
-            {/* OPCIÓN 2: VINCULACIÓN DE CARPETA ESPECÍFICA POR AÑO LECTIVO (EJ. VILLA FLORA 2026 / VILLA FLORA 2027) */}
-            <div className="bg-white border border-emerald-200/90 rounded-xl p-3.5 space-y-2.5">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <div className="flex items-center gap-1.5 text-xs font-bold text-slate-800">
-                  <FolderOpen className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+            {/* Tarjeta limpia de estado automático (lo único que ve el usuario normal) */}
+            <div className="bg-white border border-emerald-200 rounded-xl p-3.5 space-y-2.5">
+              <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+                <div className="flex items-center gap-2 text-slate-800">
+                  <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 shrink-0" />
                   <span>
-                    Carpeta Institucional de Google Drive por Año Lectivo
+                    Carpeta anual automática:{' '}
+                    <strong className="font-extrabold text-emerald-900">
+                      📁 {carpetaActivaBoletin}
+                    </strong>
                   </span>
-                </div>
-
-                {/* Selector de Año Lectivo (2026 / 2027) */}
-                <div className="inline-flex items-center gap-1 bg-slate-100 p-0.5 rounded-lg border border-slate-200">
-                  {[2026, 2027].map((anioItem) => {
-                    const activo = anioCarpetaSeleccionado === anioItem;
-                    return (
-                      <button
-                        key={anioItem}
-                        type="button"
-                        onClick={() => handleCambiarAnioCarpeta(anioItem)}
-                        className={`px-2.5 py-1 rounded-md text-[11px] font-bold transition-colors cursor-pointer ${
-                          activo
-                            ? 'bg-emerald-600 text-white shadow-2xs'
-                            : 'text-slate-600 hover:text-slate-900'
-                        }`}
-                      >
-                        Año {anioItem}
-                        {anioItem === anioBoletinActual ? ' (Actual)' : ''}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-
-              <p className="text-[11px] text-slate-600 leading-relaxed">
-                Pega el <strong>enlace o ID de la carpeta de Google Drive</strong> o escribe el nombre exacto de la carpeta anual (ej. <code>Villa Flora {anioCarpetaSeleccionado}</code>) para evitar confusiones al cambiar de año escolar:
-              </p>
-
-              <div className="grid grid-cols-1 sm:grid-cols-12 gap-2">
-                <div className="sm:col-span-5">
-                  <label
-                    htmlFor="drive-nombre-carpeta-anual"
-                    className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1"
-                  >
-                    Nombre de carpeta ({anioCarpetaSeleccionado})
-                  </label>
-                  <input
-                    id="drive-nombre-carpeta-anual"
-                    type="text"
-                    value={nombreCarpetaAnual}
-                    onChange={(e) => setNombreCarpetaAnual(e.target.value)}
-                    placeholder={`Villa Flora ${anioCarpetaSeleccionado}`}
-                    className="w-full rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-800 focus:outline-none focus:border-emerald-600"
-                  />
-                </div>
-
-                <div className="sm:col-span-7">
-                  <label
-                    htmlFor="drive-link-id-carpeta-anual"
-                    className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1"
-                  >
-                    Enlace de Google Drive o ID de Carpeta (Opcional)
-                  </label>
-                  <input
-                    id="drive-link-id-carpeta-anual"
-                    type="text"
-                    value={entradaCarpetaAnual}
-                    onChange={(e) => {
-                      const val = e.target.value;
-                      setEntradaCarpetaAnual(val);
-                      if (!extraerIdCarpetaDrive(val) && val.trim().length > 0) {
-                        setNombreCarpetaAnual(val.trim());
-                      }
-                    }}
-                    placeholder={`https://drive.google.com/drive/folders/... o Villa Flora ${anioCarpetaSeleccionado}`}
-                    className="w-full rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs text-slate-800 font-mono-tabular focus:outline-none focus:border-emerald-600"
-                  />
-                </div>
-              </div>
-
-              <div className="flex flex-wrap items-center justify-between gap-2 pt-0.5">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <button
-                    type="button"
-                    disabled={explorandoCarpetasDrive}
-                    onClick={handleExplorarCarpetasDrive}
-                    className="px-2.5 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 text-[11px] font-semibold inline-flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
-                  >
-                    <FolderOpen className="w-3.5 h-3.5 text-emerald-700" />
-                    <span>
-                      {explorandoCarpetasDrive
-                        ? 'Buscando carpetas...'
-                        : 'Elegir carpeta de mi Drive'}
-                    </span>
-                  </button>
-
-                  {carpetasPorAnio[String(anioCarpetaSeleccionado)]?.folderId && (
-                    <span className="text-[10px] font-mono-tabular px-2 py-0.5 rounded bg-emerald-50 text-emerald-800 border border-emerald-200">
-                      ID vinculado: {carpetasPorAnio[String(anioCarpetaSeleccionado)].folderId}
-                    </span>
-                  )}
+                  <span className="px-2 py-0.5 rounded bg-emerald-50 text-emerald-800 border border-emerald-200 text-[10px] font-bold">
+                    {appsScriptConfigurado
+                      ? 'TrueNAS + Google Drive Activos'
+                      : 'Almacenamiento TrueNAS Activo'}
+                  </span>
                 </div>
 
                 <button
                   type="button"
-                  disabled={guardandoCarpetaAnual}
-                  onClick={() => handleGuardarCarpetaAnual(anioCarpetaSeleccionado)}
-                  className="px-3 py-1.5 rounded-lg bg-emerald-700 hover:bg-emerald-800 text-white text-[11px] font-bold inline-flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                  onClick={() => setMostrarAjustesAvanzadosDrive((prev) => !prev)}
+                  className="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 text-[11px] font-semibold inline-flex items-center gap-1.5 cursor-pointer transition-colors"
                 >
-                  <Check className="w-3.5 h-3.5" />
+                  <Settings className="w-3.5 h-3.5 text-slate-600" />
                   <span>
-                    {guardandoCarpetaAnual
-                      ? 'Guardando...'
-                      : `Vincular carpeta ${anioCarpetaSeleccionado}`}
+                    {mostrarAjustesAvanzadosDrive
+                      ? 'Ocultar configuración'
+                      : 'Configurar Google Drive / Carpeta'}
                   </span>
                 </button>
               </div>
 
-              {/* Lista desplegable de carpetas encontradas en el Google Drive del directivo */}
-              {mostrarSelectorCarpetasDrive && (
-                <div className="mt-2 p-2.5 rounded-lg bg-slate-50 border border-slate-200 space-y-2">
-                  <div className="flex items-center justify-between text-[11px] font-bold text-slate-700">
-                    <span>
-                      Selecciona una carpeta de tu Google Drive para el año {anioCarpetaSeleccionado}:
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => setMostrarSelectorCarpetasDrive(false)}
-                      className="text-slate-500 hover:text-slate-800 text-[11px] cursor-pointer"
-                    >
-                      Cerrar lista
-                    </button>
-                  </div>
-                  {carpetasDriveEncontradas.length === 0 ? (
-                    <p className="text-[11px] text-slate-500">
-                      No se encontraron carpetas previas creadas por la aplicación. Al publicar el boletín se creará automáticamente <strong>«{nombreCarpetaAnual || `Villa Flora ${anioCarpetaSeleccionado}`}»</strong>.
-                    </p>
-                  ) : (
-                    <div className="max-h-32 overflow-y-auto space-y-1">
-                      {carpetasDriveEncontradas.map((folder) => (
-                        <button
-                          key={folder.id}
-                          type="button"
-                          onClick={() => {
-                            setNombreCarpetaAnual(folder.name);
-                            setEntradaCarpetaAnual(folder.id);
-                            setMostrarSelectorCarpetasDrive(false);
-                            handleGuardarCarpetaAnual(
-                              anioCarpetaSeleccionado,
-                              folder.id,
-                              folder.id,
-                              folder.name
-                            );
-                          }}
-                          className="w-full text-left px-2.5 py-1.5 rounded-md bg-white hover:bg-emerald-50 border border-slate-200/80 flex items-center justify-between gap-2 text-xs transition-colors cursor-pointer"
-                        >
-                          <span className="font-semibold text-slate-800 truncate">
-                            {folder.name}
-                          </span>
-                          <span className="text-[10px] font-mono-tabular text-slate-500 shrink-0">
-                            ID: {folder.id.slice(0, 10)}...
-                          </span>
-                        </button>
-                      ))}
-                    </div>
-                  )}
+              {/* Enlace directo permanente del PDF en el servidor + enlace de Google Drive si existe */}
+              <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-100 text-xs">
+                <div className="font-semibold text-slate-700 flex items-center gap-1.5 min-w-0">
+                  <FileText className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                  <span className="truncate">{nombreArchivoPdfOficial}</span>
                 </div>
-              )}
+
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={handleCopiarServidorPdfLink}
+                    className="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 text-[11px] font-bold inline-flex items-center gap-1 cursor-pointer"
+                  >
+                    {copiadoServidorPdfLink ? (
+                      <>
+                        <Check className="w-3 h-3 text-emerald-600" />
+                        <span>Link PDF copiado</span>
+                      </>
+                    ) : (
+                      <>
+                        <Copy className="w-3 h-3" />
+                        <span>Copiar link PDF directo</span>
+                      </>
+                    )}
+                  </button>
+
+                  {boletin.drivePdfInfo?.webViewLink &&
+                    boletin.drivePdfInfo.webViewLink.includes('drive.google.com') && (
+                      <button
+                        type="button"
+                        onClick={handleCopiarDriveLink}
+                        className="px-2.5 py-1 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-900 border border-emerald-200 text-[11px] font-bold inline-flex items-center gap-1 cursor-pointer"
+                      >
+                        {copiadoDriveLink ? (
+                          <>
+                            <Check className="w-3 h-3 text-emerald-600" />
+                            <span>Copiado</span>
+                          </>
+                        ) : (
+                          <>
+                            <Copy className="w-3 h-3" />
+                            <span>Link Google Drive</span>
+                          </>
+                        )}
+                      </button>
+                    )}
+
+                  <a
+                    href={boletin.drivePdfInfo?.webViewLink || urlDirectaPdfServidor}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-bold inline-flex items-center gap-1 cursor-pointer"
+                  >
+                    <ExternalLink className="w-3 h-3" />
+                    <span>Abrir PDF publicado</span>
+                  </a>
+                </div>
+              </div>
             </div>
 
-            {/* Metadatos del archivo único en Drive si ya fue creado */}
-            {boletin.drivePdfInfo && (
-              <div className="bg-white border border-emerald-200 rounded-xl p-3 space-y-2">
-                <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
-                  <div className="font-bold text-slate-800 flex items-center gap-1.5">
-                    <FileText className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-                    <span>{boletin.drivePdfInfo.fileName}</span>
-                    <span className="text-[10px] font-mono-tabular px-1.5 py-0.5 rounded bg-slate-100 text-slate-600">
-                      ID: {boletin.drivePdfInfo.fileId}
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-1.5">
+            {/* PANEL DESPLEGABLE DE ADMINISTRADOR (Cerrado por defecto para no confundir a otros usuarios) */}
+            {mostrarAjustesAvanzadosDrive && (
+              <div className="bg-white border border-emerald-300 rounded-xl p-3.5 space-y-3 text-xs animate-in fade-in duration-150">
+                {/* OPCIÓN 1: PUENTE GRATUITO GOOGLE APPS SCRIPT (SIN GOOGLE CLOUD NI TARJETAS) */}
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between gap-2 flex-wrap">
+                    <div className="font-bold text-slate-900 flex items-center gap-1.5">
+                      <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0" />
+                      <span>
+                        Opción 1: Puente Gratuito a tu Google Drive (Sin Google Cloud ni Tarjetas)
+                      </span>
+                    </div>
                     <button
                       type="button"
-                      onClick={handleCopiarDriveLink}
-                      className="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 text-[11px] font-bold inline-flex items-center gap-1 cursor-pointer"
+                      onClick={handleCopiarCodigoAppsScript}
+                      className="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-bold inline-flex items-center gap-1.5 cursor-pointer"
                     >
-                      {copiadoDriveLink ? (
+                      {copiadoCodigoScript ? (
                         <>
-                          <Check className="w-3 h-3 text-emerald-600" />
-                          <span>Enlace copiado</span>
+                          <Check className="w-3.5 h-3.5" />
+                          <span>¡Código copiado!</span>
                         </>
                       ) : (
                         <>
-                          <Copy className="w-3 h-3" />
-                          <span>Copiar link Drive</span>
+                          <Copy className="w-3.5 h-3.5" />
+                          <span>1. Copiar código conector</span>
                         </>
                       )}
                     </button>
+                  </div>
+
+                  <p className="text-[11px] text-slate-600 leading-relaxed">
+                    <strong>Solo se hace una vez:</strong> Pulsa <em>«1. Copiar código conector»</em>, abre{' '}
                     <a
-                      href={boletin.drivePdfInfo.webViewLink}
+                      href="https://script.google.com/home/start"
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-bold inline-flex items-center gap-1 cursor-pointer"
+                      className="font-bold text-[#007DC5] underline"
                     >
-                      <ExternalLink className="w-3 h-3" />
-                      <span>Abrir en Drive</span>
-                    </a>
+                      script.google.com
+                    </a>{' '}
+                    con tu Gmail normal (es 100% gratis y no pide tarjeta), pega el código en un <em>Nuevo proyecto</em>, pulsa{' '}
+                    <strong>Implementar → Nueva implementación → Aplicación web</strong> (acceso: <em>Cualquier persona</em>) y pega aquí la URL generada:
+                  </p>
+
+                  <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+                    <input
+                      type="url"
+                      value={appsScriptUrl}
+                      onChange={(e) => setAppsScriptUrl(e.target.value)}
+                      placeholder="https://script.google.com/macros/s/.../exec"
+                      className="flex-1 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-mono-tabular text-slate-800 focus:outline-none focus:border-emerald-600"
+                    />
+                    <button
+                      type="button"
+                      disabled={guardandoConectorScript}
+                      onClick={handleGuardarConectorAppsScript}
+                      className="px-3.5 py-1.5 rounded-lg bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-bold inline-flex items-center justify-center gap-1.5 shrink-0 cursor-pointer disabled:opacity-50"
+                    >
+                      <Check className="w-3.5 h-3.5" />
+                      <span>
+                        {guardandoConectorScript ? 'Guardando...' : 'Guardar Puente'}
+                      </span>
+                    </button>
                   </div>
                 </div>
-                <div className="text-[11px] text-slate-500">
-                  Carpeta vinculada: <strong>{boletin.drivePdfInfo.folderName || carpetaActivaBoletin}</strong> · Última versión subida por {boletin.drivePdfInfo.sincronizadoPor}
+
+                {/* OPCIÓN 2: CARPETA LOCAL EN TRUENAS + NOMBRE DE CARPETA ANUAL */}
+                <div className="pt-2.5 border-t border-slate-200 space-y-2">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="font-bold text-slate-800 flex items-center gap-1.5">
+                      <FolderOpen className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                      <span>
+                        Opción 2: Carpeta Anual en TrueNAS (<code>/app/data/pdfs/</code>) y Drive
+                      </span>
+                    </div>
+
+                    <div className="inline-flex items-center gap-1 bg-slate-100 p-0.5 rounded-lg border border-slate-200">
+                      {[2026, 2027].map((anioItem) => {
+                        const activo = anioCarpetaSeleccionado === anioItem;
+                        return (
+                          <button
+                            key={anioItem}
+                            type="button"
+                            onClick={() => handleCambiarAnioCarpeta(anioItem)}
+                            className={`px-2 py-0.5 rounded-md text-[10px] font-bold transition-colors cursor-pointer ${
+                              activo
+                                ? 'bg-emerald-600 text-white'
+                                : 'text-slate-600 hover:text-slate-900'
+                            }`}
+                          >
+                            Año {anioItem}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+                    <input
+                      type="text"
+                      value={nombreCarpetaAnual}
+                      onChange={(e) => setNombreCarpetaAnual(e.target.value)}
+                      placeholder={`Villa Flora ${anioCarpetaSeleccionado}`}
+                      className="flex-1 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-800 focus:outline-none focus:border-emerald-600"
+                    />
+                    <button
+                      type="button"
+                      disabled={guardandoCarpetaAnual}
+                      onClick={() => handleGuardarCarpetaAnual(anioCarpetaSeleccionado)}
+                      className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-900 text-white text-xs font-bold inline-flex items-center justify-center gap-1.5 shrink-0 cursor-pointer disabled:opacity-50"
+                    >
+                      <Check className="w-3.5 h-3.5" />
+                      <span>
+                        {guardandoCarpetaAnual
+                          ? 'Guardando...'
+                          : `Guardar nombre ${anioCarpetaSeleccionado}`}
+                      </span>
+                    </button>
+                  </div>
                 </div>
               </div>
             )}
 
-            {/* Diálogo de confirmación obligatoria antes de sobrescribir un archivo existente en Google Drive */}
+            {/* Diálogo de confirmación antes de sobrescribir un archivo existente */}
             {confirmandoSobrescrituraDrive && boletin.drivePdfInfo && (
               <div
                 role="alertdialog"
-                aria-label="Confirmar actualización de archivo PDF en Google Drive"
+                aria-label="Confirmar actualización de archivo PDF"
                 className="p-3.5 rounded-xl bg-amber-50 border border-amber-300 space-y-2.5 animate-in fade-in duration-150"
               >
                 <div className="flex items-start gap-2.5 text-xs text-amber-950">
                   <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
                   <div className="space-y-1">
                     <p className="font-bold">
-                      ¿Confirmas actualizar el archivo existente «{boletin.drivePdfInfo.fileName}» en Google Drive?
+                      ¿Confirmas actualizar el PDF oficial «{boletin.drivePdfInfo.fileName}»?
                     </p>
                     <p className="text-[11px] text-amber-900 leading-relaxed">
-                      Se sobrescribirá el contenido sobre el mismo ID de Google Drive (<code>{boletin.drivePdfInfo.fileId}</code>) dentro de la carpeta anual <strong>«{carpetaActivaBoletin}»</strong> generando la <strong>Revisión v{boletin.drivePdfInfo.version + 1}</strong> y manteniendo intacto el enlace compartido con los docentes.
+                      Se reemplazará automáticamente dentro de la carpeta <strong>«{carpetaActivaBoletin}»</strong> generando la <strong>Revisión v{boletin.drivePdfInfo.version + 1}</strong> y manteniendo el mismo enlace compartido.
                     </p>
                   </div>
                 </div>
@@ -1446,7 +1128,7 @@ export const ModalPublicacionNube: React.FC<ModalPublicacionNubeProps> = ({
                   >
                     <RefreshCw className="w-3.5 h-3.5" />
                     <span>
-                      Confirmar y Sobrescribir PDF (v{boletin.drivePdfInfo.version + 1})
+                      Confirmar y Actualizar PDF (v{boletin.drivePdfInfo.version + 1})
                     </span>
                   </button>
                 </div>
@@ -1466,7 +1148,7 @@ export const ModalPublicacionNube: React.FC<ModalPublicacionNubeProps> = ({
               </div>
             )}
 
-            {/* Botones de acción PDF: Descargar local o Sincronizar en Drive */}
+            {/* Botones de acción PDF: Descargar local o Guardar en 1 clic */}
             <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
               <button
                 type="button"
@@ -1474,7 +1156,7 @@ export const ModalPublicacionNube: React.FC<ModalPublicacionNubeProps> = ({
                 className="px-3.5 py-2 rounded-xl bg-white hover:bg-slate-50 text-slate-700 border border-slate-300 text-xs font-bold inline-flex items-center gap-1.5 transition-colors cursor-pointer"
               >
                 <Download className="w-3.5 h-3.5 text-emerald-600" />
-                <span>Descargar PDF Local</span>
+                <span>Descargar PDF en mi equipo</span>
               </button>
 
               <button
@@ -1488,10 +1170,10 @@ export const ModalPublicacionNube: React.FC<ModalPublicacionNubeProps> = ({
                 />
                 <span>
                   {subiendoDrivePdf
-                    ? 'Sincronizando PDF con Google Drive...'
+                    ? 'Guardando PDF automáticamente...'
                     : boletin.drivePdfInfo
-                      ? `Actualizar PDF en Drive · ${carpetaActivaBoletin} (v${boletin.drivePdfInfo.version + 1})`
-                      : `Subir PDF Oficial a «${carpetaActivaBoletin}» (v1)`}
+                      ? `Actualizar PDF en «${carpetaActivaBoletin}» (v${boletin.drivePdfInfo.version + 1})`
+                      : `Guardar PDF Oficial en «${carpetaActivaBoletin}» (v1)`}
                 </span>
               </button>
             </div>

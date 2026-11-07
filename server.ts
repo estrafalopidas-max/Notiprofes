@@ -530,6 +530,67 @@ function guardarCarpetasDrivePorAnio(): void {
   }
 }
 
+// Almacenamiento persistente de PDFs oficiales en el servidor (/app/data/pdfs) + Puente Google Apps Script
+const DIRECTORIO_PDFS = path.join(DIRECTORIO_DATOS, 'pdfs');
+if (!fs.existsSync(DIRECTORIO_PDFS)) {
+  fs.mkdirSync(DIRECTORIO_PDFS, { recursive: true });
+}
+
+interface ConfiguracionConectorDrive {
+  appsScriptUrl: string;
+  actualizadoEn?: string;
+  actualizadoPor?: string;
+}
+
+const ARCHIVO_DRIVE_CONECTOR = path.join(
+  DIRECTORIO_DATOS,
+  'notiprofes-drive-conector.json'
+);
+
+function cargarConfiguracionConectorDrive(): ConfiguracionConectorDrive {
+  try {
+    if (fs.existsSync(ARCHIVO_DRIVE_CONECTOR)) {
+      const raw = JSON.parse(
+        fs.readFileSync(ARCHIVO_DRIVE_CONECTOR, 'utf-8')
+      ) as Partial<ConfiguracionConectorDrive>;
+      return {
+        appsScriptUrl: String(
+          raw.appsScriptUrl || process.env.GOOGLE_APPS_SCRIPT_DRIVE_URL || ''
+        ).trim(),
+        actualizadoEn: raw.actualizadoEn,
+        actualizadoPor: raw.actualizadoPor,
+      };
+    }
+  } catch (err) {
+    console.error('Error al cargar conector Apps Script de Drive:', err);
+  }
+  return {
+    appsScriptUrl: (process.env.GOOGLE_APPS_SCRIPT_DRIVE_URL || '').trim(),
+  };
+}
+
+let conectorDriveConfig = cargarConfiguracionConectorDrive();
+
+function guardarConfiguracionConectorDrive(): void {
+  try {
+    fs.writeFileSync(
+      ARCHIVO_DRIVE_CONECTOR,
+      JSON.stringify(conectorDriveConfig, null, 2),
+      'utf-8'
+    );
+  } catch (err) {
+    console.error('Error al guardar conector Apps Script de Drive:', err);
+  }
+}
+
+function sanitizarNombreCarpetaLocal(nombre: string): string {
+  const limpio = (nombre || 'Villa Flora 2026')
+    .replace(/[<>:"/\\|?*\x00-\x1F]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return limpio || 'Villa Flora 2026';
+}
+
 function obtenerConfiguracionSmtpEntorno() {
   const host = (configSmtpPersistida.host ?? process.env.SMTP_HOST ?? '').trim();
   const port =
@@ -916,6 +977,31 @@ async function iniciarServidor() {
   // Bloquear explícitamente cualquier intento de acceso estático a /data o /app/data
   app.use(['/data', '/app/data'], (_req, res) => {
     res.status(403).json({ error: 'Acceso directo al almacenamiento persistente prohibido.' });
+  });
+
+  // Ruta pública controlada para consultar/descargar el último PDF oficial publicado (sin exponer /app/data)
+  app.get('/public/pdf/:nombreArchivo', (req, res) => {
+    const nombreSeguro = path.basename(String(req.params.nombreArchivo || ''));
+    if (!/^NotiProfes_N\d+_VillaFlora\.pdf$/i.test(nombreSeguro)) {
+      res.status(400).send('Nombre de archivo PDF institucional no válido.');
+      return;
+    }
+    const rutaPdf = path.join(DIRECTORIO_PDFS, nombreSeguro);
+    if (!fs.existsSync(rutaPdf)) {
+      res
+        .status(404)
+        .send(
+          'El PDF oficial de esta edición aún no ha sido generado en el servidor. Publíquelo desde el panel directivo.'
+        );
+      return;
+    }
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader(
+      'Content-Disposition',
+      `inline; filename="${nombreSeguro}"`
+    );
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    res.sendFile(rutaPdf);
   });
 
   // Servir activos institucionales públicos (logo oficial y adjuntos en /public/assets y /assets)
@@ -1596,7 +1682,7 @@ async function iniciarServidor() {
   );
 
   // =========================================================================
-  // ENDPOINTS DE VINCULACIÓN DE CARPETA ANUAL EN GOOGLE DRIVE (2026 / 2027)
+  // ENDPOINTS DE VINCULACIÓN DE CARPETA ANUAL Y GUARDADO AUTOMÁTICO DE PDF (TRUENAS + APPS SCRIPT)
   // =========================================================================
   app.get(
     '/api/drive/carpetas',
@@ -1604,6 +1690,248 @@ async function iniciarServidor() {
     (_req: RequestAutenticado, res) => {
       res.json({
         carpetasPorAnio: carpetasDrivePorAnio,
+        appsScriptUrl: conectorDriveConfig.appsScriptUrl,
+        appsScriptConfigurado: Boolean(conectorDriveConfig.appsScriptUrl),
+        rutaLocalTrueNas: DIRECTORIO_PDFS,
+      });
+    }
+  );
+
+  app.post(
+    '/api/drive/conector',
+    verificarSesionDirectiva,
+    (req: RequestAutenticado, res) => {
+      const { appsScriptUrl } = req.body as { appsScriptUrl?: string };
+      const urlLimpia = (appsScriptUrl ?? '').trim();
+
+      if (
+        urlLimpia &&
+        !urlLimpia.startsWith('https://script.google.com/') &&
+        !urlLimpia.startsWith('https://script.googleusercontent.com/')
+      ) {
+        res.status(400).json({
+          error:
+            'La URL del puente debe comenzar con https://script.google.com/macros/s/.../exec',
+        });
+        return;
+      }
+
+      const ahoraTexto = new Date().toLocaleString('es-CO', {
+        timeZone: 'America/Bogota',
+        dateStyle: 'short',
+        timeStyle: 'short',
+      });
+
+      conectorDriveConfig = {
+        appsScriptUrl: urlLimpia,
+        actualizadoEn: ahoraTexto,
+        actualizadoPor: `${req.usuarioDirectivo!.nombre} (${req.usuarioDirectivo!.cargo})`,
+      };
+      guardarConfiguracionConectorDrive();
+
+      res.json({
+        ok: true,
+        appsScriptUrl: conectorDriveConfig.appsScriptUrl,
+        appsScriptConfigurado: Boolean(conectorDriveConfig.appsScriptUrl),
+        mensaje: urlLimpia
+          ? 'Puente directo con Google Drive (Apps Script) activado. Ya no necesitas iniciar sesión con Google en ningún dispositivo.'
+          : 'Conector de Google Apps Script desvinculado. Los PDFs seguirán guardándose automáticamente en el servidor TrueNAS.',
+      });
+    }
+  );
+
+  app.post(
+    '/api/drive/publicar-pdf',
+    verificarSesionDirectiva,
+    async (req: RequestAutenticado, res) => {
+      const {
+        boletinId,
+        numeroBoletin,
+        anio,
+        fileName,
+        pdfBase64,
+        folderNameOverride,
+      } = req.body as {
+        boletinId?: string;
+        numeroBoletin?: number;
+        anio?: number;
+        fileName?: string;
+        pdfBase64?: string;
+        folderNameOverride?: string;
+      };
+
+      const num = Number(numeroBoletin) || 40;
+      const anioLectivo = Number(anio) || 2026;
+      const nombreSeguro = path.basename(
+        fileName && /^NotiProfes_N\d+_VillaFlora\.pdf$/i.test(fileName)
+          ? fileName
+          : `NotiProfes_N${num}_VillaFlora.pdf`
+      );
+
+      if (!pdfBase64 || typeof pdfBase64 !== 'string') {
+        res.status(400).json({
+          error: 'No se recibió el contenido binario del PDF para guardar.',
+        });
+        return;
+      }
+
+      // Limpiar prefijo data:application/pdf;base64, si viniera incluido
+      const base64Limpio = pdfBase64.replace(
+        /^data:application\/pdf;base64,/i,
+        ''
+      );
+      const bufferPdf = Buffer.from(base64Limpio, 'base64');
+
+      const configCarpetaAnio = carpetasDrivePorAnio[String(anioLectivo)] || {
+        anio: anioLectivo,
+        folderInput: `Villa Flora ${anioLectivo}`,
+        folderId: '',
+        folderName: `Villa Flora ${anioLectivo}`,
+      };
+
+      const nombreCarpetaAnual = sanitizarNombreCarpetaLocal(
+        (folderNameOverride || configCarpetaAnio.folderName || `Villa Flora ${anioLectivo}`).trim()
+      );
+
+      // 1. OPCIÓN 2: Guardar siempre en el almacenamiento persistente (/app/data/pdfs/<CarpetaAnual>/ y /app/data/pdfs/)
+      const subcarpetaAnualPath = path.join(DIRECTORIO_PDFS, nombreCarpetaAnual);
+      if (!fs.existsSync(subcarpetaAnualPath)) {
+        fs.mkdirSync(subcarpetaAnualPath, { recursive: true });
+      }
+      const rutaArchivoCarpetaAnual = path.join(subcarpetaAnualPath, nombreSeguro);
+      const rutaArchivoRaizPdfs = path.join(DIRECTORIO_PDFS, nombreSeguro);
+
+      fs.writeFileSync(rutaArchivoCarpetaAnual, bufferPdf);
+      fs.writeFileSync(rutaArchivoRaizPdfs, bufferPdf);
+
+      // Buscar el boletín para conocer su versión y fileId previo
+      const boletinObjetivo =
+        estadoDb.boletines.find((b) => b.id === boletinId) ||
+        estadoDb.boletines.find((b) => b.numero === num) ||
+        estadoDb.boletines[0];
+
+      const infoPrevia = boletinObjetivo?.drivePdfInfo;
+      const versionNueva = (infoPrevia?.version || 0) + 1;
+
+      const protocolo =
+        (req.headers['x-forwarded-proto'] as string)?.split(',')[0]?.trim() ||
+        req.protocol ||
+        'https';
+      const host = req.get('host') || 'localhost:3000';
+      const urlPdfServidor = `${protocolo}://${host}/public/pdf/${encodeURIComponent(nombreSeguro)}`;
+
+      let fileIdFinal = infoPrevia?.fileId || `truenas-pdf-n${num}`;
+      let folderIdFinal =
+        configCarpetaAnio.folderId || infoPrevia?.folderId || `carpeta-${anioLectivo}`;
+      let webViewLinkFinal = urlPdfServidor;
+      let subidoAGoogleDriveBridge = false;
+      let avisoBridgeDrive: string | null = null;
+
+      // 2. OPCIÓN 1: Si hay puente Google Apps Script configurado, enviarlo automáticamente a Google Drive
+      if (conectorDriveConfig.appsScriptUrl) {
+        try {
+          const respBridge = await fetch(conectorDriveConfig.appsScriptUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              action: 'upsertPdf',
+              anio: anioLectivo,
+              folderName: nombreCarpetaAnual,
+              folderId: configCarpetaAnio.folderId || '',
+              fileName: nombreSeguro,
+              fileId:
+                infoPrevia?.fileId && !infoPrevia.fileId.startsWith('truenas-pdf-')
+                  ? infoPrevia.fileId
+                  : '',
+              pdfBase64: base64Limpio,
+            }),
+            redirect: 'follow',
+          });
+
+          const textoBridge = await respBridge.text();
+          let dataBridge: {
+            ok?: boolean;
+            fileId?: string;
+            folderId?: string;
+            folderName?: string;
+            webViewLink?: string;
+            error?: string;
+          } | null = null;
+          try {
+            dataBridge = JSON.parse(textoBridge);
+          } catch {
+            dataBridge = null;
+          }
+
+          if (respBridge.ok && dataBridge?.ok && dataBridge.fileId) {
+            fileIdFinal = dataBridge.fileId;
+            folderIdFinal = dataBridge.folderId || folderIdFinal;
+            webViewLinkFinal =
+              dataBridge.webViewLink ||
+              `https://drive.google.com/file/d/${dataBridge.fileId}/view?usp=sharing`;
+            subidoAGoogleDriveBridge = true;
+
+            if (dataBridge.folderId) {
+              carpetasDrivePorAnio[String(anioLectivo)] = {
+                ...configCarpetaAnio,
+                folderId: dataBridge.folderId,
+                folderName: dataBridge.folderName || nombreCarpetaAnual,
+              };
+              guardarCarpetasDrivePorAnio();
+            }
+          } else {
+            avisoBridgeDrive =
+              dataBridge?.error ||
+              'El puente de Google Apps Script no devolvió un ID válido; el PDF quedó resguardado en el servidor TrueNAS.';
+          }
+        } catch (err) {
+          console.error('Error al invocar puente Google Apps Script:', err);
+          avisoBridgeDrive =
+            'No se pudo contactar el puente de Google Apps Script; el PDF quedó guardado y disponible en el servidor TrueNAS.';
+        }
+      }
+
+      const autorVerificado = `${req.usuarioDirectivo!.nombre} (${req.usuarioDirectivo!.cargo})`;
+      const metadataActualizada = {
+        fileId: fileIdFinal,
+        fileName: nombreSeguro,
+        folderId: folderIdFinal,
+        folderName: nombreCarpetaAnual,
+        webViewLink: webViewLinkFinal,
+        version: versionNueva,
+        sincronizadoEn: new Date().toISOString(),
+        sincronizadoPor: autorVerificado,
+      };
+
+      if (boletinObjetivo) {
+        const idx = estadoDb.boletines.findIndex((b) => b.id === boletinObjetivo.id);
+        if (idx >= 0) {
+          estadoDb.boletines[idx] = aplicarOperacionBoletin(
+            estadoDb.boletines[idx],
+            {
+              tipo: 'actualizar_drive_pdf',
+              drivePdfInfo: metadataActualizada,
+              autor: autorVerificado,
+            }
+          );
+          guardarBaseDatos(estadoDb);
+          difundirEventoWs({
+            evento: 'boletin:actualizado',
+            boletin: estadoDb.boletines[idx],
+          });
+        }
+      }
+
+      res.json({
+        ok: true,
+        subidoAGoogleDriveBridge,
+        urlPdfServidor,
+        rutaCarpetaServidor: `/app/data/pdfs/${nombreCarpetaAnual}/${nombreSeguro}`,
+        avisoBridgeDrive,
+        metadata: metadataActualizada,
+        mensaje: subidoAGoogleDriveBridge
+          ? `¡PDF oficial actualizado (Revisión v${versionNueva}) simultáneamente en tu Google Drive («${nombreCarpetaAnual}») y en el servidor TrueNAS!`
+          : `¡PDF oficial guardado y sobrescrito automáticamente (Revisión v${versionNueva}) en la carpeta «${nombreCarpetaAnual}» del servidor TrueNAS!`,
       });
     }
   );
