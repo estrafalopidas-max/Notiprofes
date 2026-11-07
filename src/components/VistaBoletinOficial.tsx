@@ -23,6 +23,7 @@ import {
 import { BoletinSemanal } from '../types/notiprofes';
 import { filtrarDiasBoletin } from '../utils/boletinLogic';
 import { DropdownPersonalizado } from './DropdownPersonalizado';
+import { PanelResumenInicio } from './PanelResumenInicio';
 import {
   calcularEstadoCalendarioBoletin,
   obtenerCalendarioOficialBoletin,
@@ -186,6 +187,13 @@ export const VistaBoletinOficial: React.FC<VistaBoletinOficialProps> = ({
 
   return (
     <div className="space-y-6">
+      {/* PANEL DE RESUMEN EJECUTIVO Y ESTADÍSTICAS RÁPIDAS EN EL INICIO */}
+      <PanelResumenInicio
+        boletin={boletin}
+        totalEdiciones={listaBoletines.length}
+        docentesConectadosSemana={38}
+      />
+
       {/* HERO COMPACTO INSTITUCIONAL I.E. VILLA FLORA */}
       <section
         aria-label="Encabezado Institucional Noti-Profes"

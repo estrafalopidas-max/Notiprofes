@@ -892,11 +892,13 @@ export function generarHtmlPublicoBoletin(boletin: BoletinSemanal): string {
       border-radius: 16px;
       border: 1px solid #dbe4f0;
       box-shadow: 0 16px 40px -12px rgba(3, 78, 162, 0.12);
-      overflow: hidden;
+      position: relative;
     }
     .franja-corporativa {
       height: 6px;
       background: linear-gradient(90deg, #034EA2 0%, #007DC5 65%, #ED145B 100%);
+      border-top-left-radius: 16px;
+      border-top-right-radius: 16px;
     }
     .barra-superior {
       background: var(--vf-dark);
@@ -2217,13 +2219,19 @@ export function generarHtmlPublicoBoletin(boletin: BoletinSemanal): string {
       if (btn) btn.innerText = 'Generando PDF...';
 
       function descargarConHtml2Pdf() {
-        var element = document.querySelector('.contenedor');
+        var element = document.querySelector('.contenedor') || document.body;
+        var widthPx = element.offsetWidth || 840;
+        var heightPx = Math.max(element.scrollHeight, element.offsetHeight, 1200);
+        var widthMm = Math.max(215, Math.ceil(widthPx * 0.264583) + 12);
+        var heightMm = Math.ceil(heightPx * 0.264583) + 20;
+
         var opt = {
           margin:       [6, 6, 6, 6],
           filename:     '${escaparHtml(nombreArchivoPdf)}',
           image:        { type: 'jpeg', quality: 0.98 },
-          html2canvas:  { scale: 2, useCORS: true, logging: false },
-          jsPDF:        { unit: 'mm', format: 'letter', orientation: 'portrait' }
+          html2canvas:  { scale: 2, useCORS: true, logging: false, windowWidth: widthPx },
+          jsPDF:        { unit: 'mm', format: [widthMm, heightMm], orientation: 'portrait', compress: true },
+          pagebreak:    { mode: [] }
         };
         if (window.html2pdf) {
           window.html2pdf().set(opt).from(element).save().then(function() {
