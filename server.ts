@@ -157,6 +157,9 @@ interface SesionActiva {
   creadaEn: number;
 }
 
+// Expiración máxima de sesión directiva en memoria y persistencia: 12 horas
+const SESION_TTL_MS = 12 * 60 * 60 * 1000;
+
 const ARCHIVO_SESIONES = path.join(DIRECTORIO_DATOS, 'notiprofes-sesiones.json');
 
 function cargarSesionesPersistidas(): Map<string, SesionActiva> {
@@ -637,8 +640,6 @@ interface RequestAutenticado extends Request {
   usuarioDirectivo?: UsuarioDirectivo;
 }
 
-// Expiración máxima de sesión directiva en memoria: 12 horas
-const SESION_TTL_MS = 12 * 60 * 60 * 1000;
 
 // Control de intentos fallidos de inicio de sesión contra fuerza bruta (máx. 5 intentos / bloqueo 5 min)
 const intentosFallidosLogin = new Map<
