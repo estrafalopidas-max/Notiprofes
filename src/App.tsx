@@ -1104,7 +1104,7 @@ export default function App() {
         )}
 
         {/* Área de Trabajo Principal */}
-        <main className="flex-1 w-full max-w-[1380px] mx-auto px-4 sm:px-6 py-6 min-w-0">
+        <main className="flex-1 w-full max-w-[1380px] mx-auto px-4 sm:px-6 py-6 min-w-0 scroll-smooth">
           {vistaActiva === 'boletin' && (
             <VistaBoletinOficial
               boletin={boletin}

@@ -12,6 +12,10 @@
     --vf-gray: #64748B;
   }
 
+  html, main {
+    scroll-behavior: smooth;
+  }
+
   body {
     font-family: var(--font-sans);
     background-color: #F4F7FB;
