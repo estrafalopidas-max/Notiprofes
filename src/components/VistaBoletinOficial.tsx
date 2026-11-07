@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   AlertTriangle,
   Award,
@@ -71,6 +71,53 @@ export const VistaBoletinOficial: React.FC<VistaBoletinOficialProps> = ({
       return true;
     }
   });
+
+  const anioActualBoletin = useMemo(() => {
+    if (boletin.calendarioOficial?.anio) return boletin.calendarioOficial.anio;
+    const match = (boletin.fechaEmision || '').match(/\b(20\d{2})\b/);
+    if (match?.[1]) return Number(match[1]);
+    const matchSem = (boletin.semanaTexto || '').match(/\b(20\d{2})\b/);
+    if (matchSem?.[1]) return Number(matchSem[1]);
+    return 2026;
+  }, [boletin.calendarioOficial?.anio, boletin.fechaEmision, boletin.semanaTexto]);
+
+  const [anioSeleccionado, setAnioSeleccionado] = useState<number>(anioActualBoletin);
+
+  useEffect(() => {
+    setAnioSeleccionado(anioActualBoletin);
+  }, [anioActualBoletin]);
+
+  const aniosDisponibles = useMemo(() => {
+    const conjunto = new Set<number>();
+    conjunto.add(anioActualBoletin);
+    for (const b of listaBoletines) {
+      const matchFecha = (b.fechaEmision || '').match(/\b(20\d{2})\b/);
+      if (matchFecha?.[1]) {
+        conjunto.add(Number(matchFecha[1]));
+        continue;
+      }
+      const matchSem = (b.semanaTexto || '').match(/\b(20\d{2})\b/);
+      if (matchSem?.[1]) {
+        conjunto.add(Number(matchSem[1]));
+        continue;
+      }
+      conjunto.add(2026);
+    }
+    return Array.from(conjunto).sort((a, b) => b - a);
+  }, [listaBoletines, anioActualBoletin]);
+
+  const boletinesFiltradosPorAnio = useMemo(() => {
+    if (aniosDisponibles.length <= 1) {
+      return listaBoletines;
+    }
+    return listaBoletines.filter((b) => {
+      const matchFecha = (b.fechaEmision || '').match(/\b(20\d{2})\b/);
+      if (matchFecha?.[1]) return Number(matchFecha[1]) === anioSeleccionado;
+      const matchSem = (b.semanaTexto || '').match(/\b(20\d{2})\b/);
+      if (matchSem?.[1]) return Number(matchSem[1]) === anioSeleccionado;
+      return anioSeleccionado === 2026;
+    });
+  }, [listaBoletines, aniosDisponibles.length, anioSeleccionado]);
 
   const toggleCalendarioAbierto = () => {
     setCalendarioAbierto((prev) => {
@@ -448,8 +495,30 @@ export const VistaBoletinOficial: React.FC<VistaBoletinOficialProps> = ({
           />
         </div>
 
-        <div className="flex flex-wrap items-center gap-2.5">
-          {listaBoletines.length > 1 && (
+        <div className="flex flex-wrap items-center gap-2">
+          {aniosDisponibles.length > 1 && (
+            <div className="inline-flex rounded-lg border border-slate-300 bg-slate-100 p-0.5" role="group" aria-label="Año lectivo del histórico">
+              {aniosDisponibles.map((anio) => {
+                const activo = anio === anioSeleccionado;
+                return (
+                  <button
+                    key={anio}
+                    type="button"
+                    onClick={() => setAnioSeleccionado(anio)}
+                    className={`inline-flex items-center gap-1 px-2.5 py-1 text-xs font-bold rounded-md transition-colors cursor-pointer ${
+                      activo
+                        ? 'bg-[#034EA2] text-white shadow-2xs'
+                        : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                  >
+                    <span>{anio}</span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+
+          {boletinesFiltradosPorAnio.length > 0 && (
             <DropdownPersonalizado
               modo="simple"
               ariaLabel="Seleccionar edición de Noti-Profes"
@@ -458,7 +527,7 @@ export const VistaBoletinOficial: React.FC<VistaBoletinOficialProps> = ({
               valorSeleccionado={boletin.id}
               onChange={(nuevoId) => onSeleccionarBoletin(nuevoId)}
               alineacionMenu="derecha"
-              opciones={listaBoletines.map((item) => ({
+              opciones={boletinesFiltradosPorAnio.map((item) => ({
                 valor: item.id,
                 etiqueta: `Edición N° ${item.numero} (${item.fechaEmision})`,
               }))}
