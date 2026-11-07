@@ -35,11 +35,15 @@ import {
   ConfiguracionCalendarioAnual,
   DocumentoInstitucional,
   HorarioPersonalApoyo,
+  OpcionesClonarBoletin,
   OperacionBoletin,
   PresenciaActiva,
   UsuarioDirectivo,
 } from '../types/notiprofes';
-import { validarActividadInput } from '../utils/boletinLogic';
+import {
+  filtrarEventosLargoPlazoVigentes,
+  validarActividadInput,
+} from '../utils/boletinLogic';
 import {
   calcularFechaViernesSiguienteSemana,
   formatearFechaIsoATextoLargo,
@@ -62,12 +66,7 @@ interface PanelEditorColaborativoProps {
   } | null;
   onSolicitarLogin: () => void;
   onEjecutarOperacion: (op: OperacionBoletin) => Promise<boolean>;
-  onClonarSemana: (datos: {
-    semanaTexto: string;
-    fechaEmision: string;
-    descripcionPeriodo: string;
-    conservarActividades: boolean;
-  }) => Promise<boolean>;
+  onClonarSemana: (datos: OpcionesClonarBoletin) => Promise<boolean>;
   onCambiarSeccionActiva: (seccion: string) => void;
   seccionInicial?: SeccionEditor;
 }
@@ -186,6 +185,24 @@ export const PanelEditorColaborativo: React.FC<PanelEditorColaborativoProps> = (
     'Programación de la UNDÉCIMA semana del TERCER periodo del año lectivo.'
   );
   const [conservarActividades, setConservarActividades] = useState(false);
+  const [modoEventosLPClonar, setModoEventosLPClonar] = useState<
+    'futuras' | 'todas' | 'ninguna'
+  >('futuras');
+  const [conservarFelicitacionesClonar, setConservarFelicitacionesClonar] =
+    useState(false);
+  const [conservarSuspensionesClonar, setConservarSuspensionesClonar] =
+    useState(false);
+  const [conservarAvisosPracticasClonar, setConservarAvisosPracticasClonar] =
+    useState(true);
+
+  const [confirmandoLimpieza, setConfirmandoLimpieza] = useState<
+    | 'largo_plazo_todos'
+    | 'largo_plazo_vencidos'
+    | 'felicitaciones'
+    | 'avisos_practicas'
+    | 'suspensiones'
+    | null
+  >(null);
 
   const [polizaTitulo, setPolizaTitulo] = useState(boletin.polizaEscolarDoc?.titulo || '');
   const [polizaUrl, setPolizaUrl] = useState(boletin.polizaEscolarDoc?.url || '');
@@ -721,6 +738,10 @@ export const PanelEditorColaborativo: React.FC<PanelEditorColaborativoProps> = (
       fechaEmision: nuevaFechaEmision,
       descripcionPeriodo: nuevaDescPeriodo,
       conservarActividades,
+      modoEventosLargoPlazo: modoEventosLPClonar,
+      conservarFelicitaciones: conservarFelicitacionesClonar,
+      conservarSuspensiones: conservarSuspensionesClonar,
+      conservarAvisosPracticas: conservarAvisosPracticasClonar,
     });
     if (exito) {
       notificarGuardado(
@@ -1979,49 +2000,150 @@ export const PanelEditorColaborativo: React.FC<PanelEditorColaborativoProps> = (
           </form>
 
           <div className="lg:col-span-7 bg-white border border-slate-200/90 rounded-xl p-6 space-y-4">
-            <h3 className="text-sm font-display font-bold text-slate-900 border-b border-slate-100 pb-2">
-              Cronograma Anual y Actividades a Largo Plazo ({boletin.proyeccionCalendario.length})
-            </h3>
-            <div className="divide-y divide-slate-100 max-h-[540px] overflow-y-auto pr-1">
-              {boletin.proyeccionCalendario.map((ev) => (
-                <div
-                  key={ev.id}
-                  className="py-3 flex items-start justify-between gap-3 text-sm"
-                >
-                  <div>
-                    <div className="text-xs text-slate-400 font-mono-tabular uppercase">
-                      {ev.categoria === 'finalizacion'
-                        ? 'Calendario Finalización'
-                        : 'Próxima Actividad / Largo Plazo'}
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 pb-2.5">
+              <h3 className="text-sm font-display font-bold text-slate-900">
+                Cronograma Anual y Actividades a Largo Plazo ({boletin.proyeccionCalendario.length})
+              </h3>
+
+              {boletin.proyeccionCalendario.length > 0 && (
+                <div className="flex flex-wrap items-center gap-1.5">
+                  {confirmandoLimpieza === 'largo_plazo_vencidos' ? (
+                    <div className="inline-flex items-center gap-1.5 bg-amber-50 border border-amber-300 px-2.5 py-1 rounded-lg text-[11px]">
+                      <span className="font-semibold text-amber-950">
+                        ¿Conservar solo futuras vigentes?
+                      </span>
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          if (!usuarioActual) return onSolicitarLogin();
+                          const ok = await onEjecutarOperacion({
+                            tipo: 'limpiar_eventos_largo_plazo',
+                            modo: 'solo_vencidos',
+                            autor: usuarioActual.nombre,
+                          });
+                          setConfirmandoLimpieza(null);
+                          if (ok) {
+                            notificarGuardado(
+                              'Se conservaron únicamente las actividades futuras vigentes en el cronograma.'
+                            );
+                          }
+                        }}
+                        className="px-2 py-0.5 rounded bg-amber-600 hover:bg-amber-700 text-white font-bold cursor-pointer"
+                      >
+                        Sí, depurar
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setConfirmandoLimpieza(null)}
+                        className="px-1.5 py-0.5 rounded text-slate-600 hover:bg-slate-200 font-semibold cursor-pointer"
+                      >
+                        Cancelar
+                      </button>
                     </div>
-                    <div className="text-slate-900 mt-0.5">
-                      <strong className={ev.destacado ? 'text-blue-700' : ''}>
-                        {ev.fechaTexto}:
-                      </strong>{' '}
-                      {ev.descripcion}
+                  ) : confirmandoLimpieza === 'largo_plazo_todos' ? (
+                    <div className="inline-flex items-center gap-1.5 bg-rose-50 border border-rose-300 px-2.5 py-1 rounded-lg text-[11px]">
+                      <span className="font-semibold text-rose-950">
+                        ¿Vaciar las {boletin.proyeccionCalendario.length} actividades?
+                      </span>
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          if (!usuarioActual) return onSolicitarLogin();
+                          const ok = await onEjecutarOperacion({
+                            tipo: 'limpiar_eventos_largo_plazo',
+                            modo: 'todos',
+                            autor: usuarioActual.nombre,
+                          });
+                          setConfirmandoLimpieza(null);
+                          if (ok) {
+                            notificarGuardado(
+                              'Lista de actividades a largo plazo vaciada por completo.'
+                            );
+                          }
+                        }}
+                        className="px-2 py-0.5 rounded bg-rose-600 hover:bg-rose-700 text-white font-bold cursor-pointer"
+                      >
+                        Sí, limpiar
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setConfirmandoLimpieza(null)}
+                        className="px-1.5 py-0.5 rounded text-slate-600 hover:bg-slate-200 font-semibold cursor-pointer"
+                      >
+                        Cancelar
+                      </button>
                     </div>
-                  </div>
-                  <button
-                    type="button"
-                    aria-label={`Eliminar evento ${ev.fechaTexto}`}
-                    onClick={() => {
-                      if (!usuarioActual) {
-                        onSolicitarLogin();
-                        return;
-                      }
-                      onEjecutarOperacion({
-                        tipo: 'eliminar_evento_largo_plazo',
-                        eventoId: ev.id,
-                        autor: usuarioActual.nombre,
-                      });
-                    }}
-                    className="p-1.5 text-slate-400 hover:text-red-600 shrink-0"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
+                  ) : (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => setConfirmandoLimpieza('largo_plazo_vencidos')}
+                        className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-sky-50 hover:bg-sky-100 text-[#034EA2] border border-sky-200 transition-colors cursor-pointer"
+                        title="Elimina las fechas que ya pasaron y conserva únicamente las actividades futuras vigentes"
+                      >
+                        <RotateCcw className="w-3 h-3" />
+                        <span>Conservar futuras vigentes</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setConfirmandoLimpieza('largo_plazo_todos')}
+                        className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 transition-colors cursor-pointer"
+                      >
+                        <Trash2 className="w-3 h-3" />
+                        <span>Limpiar lista</span>
+                      </button>
+                    </>
+                  )}
                 </div>
-              ))}
+              )}
             </div>
+
+            {boletin.proyeccionCalendario.length === 0 ? (
+              <div className="py-8 text-center text-xs text-slate-400 italic">
+                No hay actividades registradas en el cronograma a largo plazo para esta edición.
+              </div>
+            ) : (
+              <div className="divide-y divide-slate-100 max-h-[540px] overflow-y-auto pr-1">
+                {boletin.proyeccionCalendario.map((ev) => (
+                  <div
+                    key={ev.id}
+                    className="py-3 flex items-start justify-between gap-3 text-sm"
+                  >
+                    <div>
+                      <div className="text-xs text-slate-400 font-mono-tabular uppercase">
+                        {ev.categoria === 'finalizacion'
+                          ? 'Calendario Finalización'
+                          : 'Próxima Actividad / Largo Plazo'}
+                      </div>
+                      <div className="text-slate-900 mt-0.5">
+                        <strong className={ev.destacado ? 'text-blue-700' : ''}>
+                          {ev.fechaTexto}:
+                        </strong>{' '}
+                        {ev.descripcion}
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      aria-label={`Eliminar evento ${ev.fechaTexto}`}
+                      onClick={() => {
+                        if (!usuarioActual) {
+                          onSolicitarLogin();
+                          return;
+                        }
+                        onEjecutarOperacion({
+                          tipo: 'eliminar_evento_largo_plazo',
+                          eventoId: ev.id,
+                          autor: usuarioActual.nombre,
+                        });
+                      }}
+                      className="p-1.5 text-slate-400 hover:text-red-600 shrink-0 cursor-pointer"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
           </div>
         </div>
@@ -2031,10 +2153,57 @@ export const PanelEditorColaborativo: React.FC<PanelEditorColaborativoProps> = (
       {seccion === 'practicas' && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           <div className="bg-white border border-slate-200/90 rounded-xl p-6 space-y-5">
-            <h2 className="text-base font-display font-bold text-slate-900 flex items-center gap-2 border-b border-slate-100 pb-2.5">
-              <Sparkles className="w-4 h-4 text-amber-600" />
-              Reconocimientos a Docentes y Avisos Pedagógicos
-            </h2>
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 pb-2.5">
+              <h2 className="text-base font-display font-bold text-slate-900 flex items-center gap-2">
+                <Sparkles className="w-4 h-4 text-amber-600" />
+                Reconocimientos a Docentes y Avisos Pedagógicos
+              </h2>
+
+              {boletin.felicitaciones.length > 0 && (
+                <div>
+                  {confirmandoLimpieza === 'felicitaciones' ? (
+                    <div className="inline-flex items-center gap-1.5 bg-rose-50 border border-rose-300 px-2.5 py-1 rounded-lg text-[11px]">
+                      <span className="font-semibold text-rose-950">
+                        ¿Limpiar {boletin.felicitaciones.length} reconocimiento(s)?
+                      </span>
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          if (!usuarioActual) return onSolicitarLogin();
+                          const ok = await onEjecutarOperacion({
+                            tipo: 'limpiar_felicitaciones',
+                            autor: usuarioActual.nombre,
+                          });
+                          setConfirmandoLimpieza(null);
+                          if (ok) {
+                            notificarGuardado('Lista de reconocimientos docentes vaciada.');
+                          }
+                        }}
+                        className="px-2 py-0.5 rounded bg-rose-600 hover:bg-rose-700 text-white font-bold cursor-pointer"
+                      >
+                        Sí, limpiar
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setConfirmandoLimpieza(null)}
+                        className="px-1.5 py-0.5 rounded text-slate-600 hover:bg-slate-200 font-semibold cursor-pointer"
+                      >
+                        Cancelar
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => setConfirmandoLimpieza('felicitaciones')}
+                      className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 transition-colors cursor-pointer"
+                    >
+                      <Trash2 className="w-3 h-3" />
+                      <span>Limpiar lista ({boletin.felicitaciones.length})</span>
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
 
             <form onSubmit={handleAgregarFelicitacion} className="space-y-3">
               <div>
@@ -2078,40 +2247,96 @@ export const PanelEditorColaborativo: React.FC<PanelEditorColaborativoProps> = (
             </form>
 
             <div className="divide-y divide-slate-100 border-t border-slate-100 pt-3">
-              {boletin.felicitaciones.map((f) => (
-                <div key={f.id} className="py-2.5 flex items-start justify-between gap-2 text-xs">
-                  <div>
-                    <strong className="text-slate-900">{f.docentes}:</strong> {f.motivo}
-                  </div>
-                  <button
-                    type="button"
-                    aria-label={`Eliminar felicitación de ${f.docentes}`}
-                    onClick={() => {
-                      if (!usuarioActual) return onSolicitarLogin();
-                      onEjecutarOperacion({
-                        tipo: 'eliminar_felicitacion',
-                        felicitacionId: f.id,
-                        autor: usuarioActual.nombre,
-                      });
-                    }}
-                    className="text-slate-400 hover:text-red-600"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </button>
+              {boletin.felicitaciones.length === 0 ? (
+                <div className="py-3 text-xs text-slate-400 italic">
+                  Sin reconocimientos registrados para esta edición.
                 </div>
-              ))}
+              ) : (
+                boletin.felicitaciones.map((f) => (
+                  <div key={f.id} className="py-2.5 flex items-start justify-between gap-2 text-xs">
+                    <div>
+                      <strong className="text-slate-900">{f.docentes}:</strong> {f.motivo}
+                    </div>
+                    <button
+                      type="button"
+                      aria-label={`Eliminar felicitación de ${f.docentes}`}
+                      onClick={() => {
+                        if (!usuarioActual) return onSolicitarLogin();
+                        onEjecutarOperacion({
+                          tipo: 'eliminar_felicitacion',
+                          felicitacionId: f.id,
+                          autor: usuarioActual.nombre,
+                        });
+                      }}
+                      className="text-slate-400 hover:text-red-600 shrink-0 cursor-pointer"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                ))
+              )}
             </div>
 
             <form
               onSubmit={handleAgregarAvisoPractica}
               className="border-t border-slate-100 pt-4 space-y-3"
             >
-              <label
-                htmlFor="nuevo-aviso-practica"
-                className="block text-xs font-semibold text-slate-700"
-              >
-                Agregar recomendación general a Noti-Prácticas:
-              </label>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <label
+                  htmlFor="nuevo-aviso-practica"
+                  className="block text-xs font-semibold text-slate-700"
+                >
+                  Agregar recomendación general a Noti-Prácticas ({boletin.avisosPracticas.length}):
+                </label>
+
+                {boletin.avisosPracticas.length > 0 && (
+                  <div>
+                    {confirmandoLimpieza === 'avisos_practicas' ? (
+                      <div className="inline-flex items-center gap-1.5 bg-rose-50 border border-rose-300 px-2.5 py-1 rounded-lg text-[11px]">
+                        <span className="font-semibold text-rose-950">
+                          ¿Limpiar {boletin.avisosPracticas.length} directriz(ces)?
+                        </span>
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            if (!usuarioActual) return onSolicitarLogin();
+                            const ok = await onEjecutarOperacion({
+                              tipo: 'limpiar_avisos_practicas',
+                              autor: usuarioActual.nombre,
+                            });
+                            setConfirmandoLimpieza(null);
+                            if (ok) {
+                              notificarGuardado(
+                                'Directrices de Noti-Prácticas vaciadas correctamente.'
+                              );
+                            }
+                          }}
+                          className="px-2 py-0.5 rounded bg-rose-600 hover:bg-rose-700 text-white font-bold cursor-pointer"
+                        >
+                          Sí, limpiar
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setConfirmandoLimpieza(null)}
+                          className="px-1.5 py-0.5 rounded text-slate-600 hover:bg-slate-200 font-semibold cursor-pointer"
+                        >
+                          Cancelar
+                        </button>
+                      </div>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => setConfirmandoLimpieza('avisos_practicas')}
+                        className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 transition-colors cursor-pointer"
+                      >
+                        <Trash2 className="w-3 h-3" />
+                        <span>Limpiar lista</span>
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
+
               <textarea
                 id="nuevo-aviso-practica"
                 rows={2}
@@ -2127,29 +2352,106 @@ export const PanelEditorColaborativo: React.FC<PanelEditorColaborativoProps> = (
                 Añadir Directriz a Noti-Prácticas
               </button>
             </form>
+
+            {boletin.avisosPracticas.length > 0 && (
+              <div className="divide-y divide-slate-100 border-t border-slate-100 pt-2">
+                {boletin.avisosPracticas.map((avisoTexto, idx) => (
+                  <div
+                    key={`aviso-${idx}`}
+                    className="py-2 flex items-start justify-between gap-2 text-xs text-slate-700"
+                  >
+                    <span className="leading-relaxed">• {avisoTexto}</span>
+                    <button
+                      type="button"
+                      aria-label={`Eliminar directriz ${idx + 1}`}
+                      onClick={() => {
+                        if (!usuarioActual) return onSolicitarLogin();
+                        onEjecutarOperacion({
+                          tipo: 'eliminar_aviso_practica',
+                          indice: idx,
+                          autor: usuarioActual.nombre,
+                        });
+                      }}
+                      className="text-slate-400 hover:text-red-600 shrink-0 cursor-pointer mt-0.5"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
 
           <div className="bg-white border border-slate-200/90 rounded-xl p-6 space-y-5">
-            <div className="flex items-center justify-between gap-2 border-b border-slate-100 pb-2.5">
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 pb-2.5">
               <h2 className="text-base font-display font-bold text-slate-900">
                 Próximas Suspensiones (Convivencia)
               </h2>
-              <label className="inline-flex items-center gap-2 text-xs font-medium text-slate-700 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={boletin.mostrarSuspensionesPublico}
-                  onChange={(e) => {
-                    if (!usuarioActual) return onSolicitarLogin();
-                    onEjecutarOperacion({
-                      tipo: 'actualizar_encabezado',
-                      datos: { mostrarSuspensionesPublico: e.target.checked },
-                      autor: usuarioActual.nombre,
-                    });
-                  }}
-                  className="accent-blue-700"
-                />
-                Mostrar en HTML público
-              </label>
+              <div className="flex flex-wrap items-center gap-2">
+                <label className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-700 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={boletin.mostrarSuspensionesPublico}
+                    onChange={(e) => {
+                      if (!usuarioActual) return onSolicitarLogin();
+                      onEjecutarOperacion({
+                        tipo: 'actualizar_encabezado',
+                        datos: { mostrarSuspensionesPublico: e.target.checked },
+                        autor: usuarioActual.nombre,
+                      });
+                    }}
+                    className="accent-blue-700"
+                  />
+                  Mostrar en HTML público
+                </label>
+
+                {boletin.suspensiones.length > 0 && (
+                  <div>
+                    {confirmandoLimpieza === 'suspensiones' ? (
+                      <div className="inline-flex items-center gap-1.5 bg-rose-50 border border-rose-300 px-2.5 py-1 rounded-lg text-[11px]">
+                        <span className="font-semibold text-rose-950">
+                          ¿Vaciar {boletin.suspensiones.length} suspensión(es)?
+                        </span>
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            if (!usuarioActual) return onSolicitarLogin();
+                            const ok = await onEjecutarOperacion({
+                              tipo: 'limpiar_suspensiones',
+                              autor: usuarioActual.nombre,
+                            });
+                            setConfirmandoLimpieza(null);
+                            if (ok) {
+                              notificarGuardado(
+                                'Tabla de próximas suspensiones vaciada correctamente.'
+                              );
+                            }
+                          }}
+                          className="px-2 py-0.5 rounded bg-rose-600 hover:bg-rose-700 text-white font-bold cursor-pointer"
+                        >
+                          Sí, limpiar
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setConfirmandoLimpieza(null)}
+                          className="px-1.5 py-0.5 rounded text-slate-600 hover:bg-slate-200 font-semibold cursor-pointer"
+                        >
+                          Cancelar
+                        </button>
+                      </div>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => setConfirmandoLimpieza('suspensiones')}
+                        className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 transition-colors cursor-pointer"
+                      >
+                        <Trash2 className="w-3 h-3" />
+                        <span>Limpiar lista ({boletin.suspensiones.length})</span>
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
             </div>
 
             <form onSubmit={handleAgregarSuspension} className="grid grid-cols-1 sm:grid-cols-3 gap-3">
@@ -2212,32 +2514,38 @@ export const PanelEditorColaborativo: React.FC<PanelEditorColaborativoProps> = (
             </form>
 
             <div className="divide-y divide-slate-100">
-              {boletin.suspensiones.map((s) => (
-                <div key={s.id} className="py-2.5 flex items-center justify-between text-xs">
-                  <div className="flex items-center gap-3">
-                    <span className="font-mono-tabular font-bold text-slate-900 w-10">
-                      {s.grado}
-                    </span>
-                    <span className="font-medium text-slate-900">{s.estudiante}</span>
-                    <span className="text-slate-500 font-mono-tabular">({s.fechaSuspension})</span>
-                  </div>
-                  <button
-                    type="button"
-                    aria-label={`Eliminar suspensión de ${s.estudiante}`}
-                    onClick={() => {
-                      if (!usuarioActual) return onSolicitarLogin();
-                      onEjecutarOperacion({
-                        tipo: 'eliminar_suspension',
-                        suspensionId: s.id,
-                        autor: usuarioActual.nombre,
-                      });
-                    }}
-                    className="text-slate-400 hover:text-red-600"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </button>
+              {boletin.suspensiones.length === 0 ? (
+                <div className="py-4 text-center text-xs text-slate-400 italic">
+                  No hay suspensiones registradas para esta edición.
                 </div>
-              ))}
+              ) : (
+                boletin.suspensiones.map((s) => (
+                  <div key={s.id} className="py-2.5 flex items-center justify-between text-xs">
+                    <div className="flex items-center gap-3">
+                      <span className="font-mono-tabular font-bold text-slate-900 w-10">
+                        {s.grado}
+                      </span>
+                      <span className="font-medium text-slate-900">{s.estudiante}</span>
+                      <span className="text-slate-500 font-mono-tabular">({s.fechaSuspension})</span>
+                    </div>
+                    <button
+                      type="button"
+                      aria-label={`Eliminar suspensión de ${s.estudiante}`}
+                      onClick={() => {
+                        if (!usuarioActual) return onSolicitarLogin();
+                        onEjecutarOperacion({
+                          tipo: 'eliminar_suspension',
+                          suspensionId: s.id,
+                          autor: usuarioActual.nombre,
+                        });
+                      }}
+                      className="text-slate-400 hover:text-red-600 cursor-pointer"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                ))
+              )}
             </div>
           </div>
         </div>
@@ -2460,27 +2768,158 @@ export const PanelEditorColaborativo: React.FC<PanelEditorColaborativoProps> = (
               />
             </div>
 
-            <label className="inline-flex items-center gap-2 text-xs font-medium text-slate-800 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={conservarActividades}
-                onChange={(e) => setConservarActividades(e.target.checked)}
-                className="accent-blue-700"
-              />
-              Copiar también las actividades diarias de la semana actual como base
-            </label>
+            {/* OPCIÓN PREVENTIVA AL CLONAR SIGUIENTE SEMANA */}
+            <div className="bg-slate-50 border border-slate-200/90 rounded-xl p-4 space-y-3.5">
+              <div className="text-xs font-display font-bold text-slate-900 uppercase tracking-wide flex items-center gap-1.5">
+                <RotateCcw className="w-3.5 h-3.5 text-[#034EA2]" />
+                <span>Opciones preventivas de contenido arrastrado para la nueva edición</span>
+              </div>
+
+              <div className="space-y-2">
+                <label className="block text-xs font-semibold text-slate-700">
+                  Cronograma Anual y Actividades a Largo Plazo ({boletin.proyeccionCalendario.length} actuales):
+                </label>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                  {[
+                    {
+                      id: 'futuras' as const,
+                      titulo: 'Solo futuras vigentes',
+                      desc: `Conserva ${
+                        filtrarEventosLargoPlazoVigentes(
+                          boletin.proyeccionCalendario,
+                          [],
+                          nuevaFechaEmision,
+                          calendarioVigente.anio
+                        ).length
+                      } actividad(es) vigente(s)`,
+                    },
+                    {
+                      id: 'todas' as const,
+                      titulo: 'Conservar todas',
+                      desc: `Arrastra las ${boletin.proyeccionCalendario.length} actividades`,
+                    },
+                    {
+                      id: 'ninguna' as const,
+                      titulo: 'Iniciar limpia',
+                      desc: 'Vacía la lista (0 actividades)',
+                    },
+                  ].map((opcion) => {
+                    const activo = modoEventosLPClonar === opcion.id;
+                    return (
+                      <button
+                        key={opcion.id}
+                        type="button"
+                        onClick={() => setModoEventosLPClonar(opcion.id)}
+                        className={`p-2.5 rounded-lg border text-left transition-all cursor-pointer ${
+                          activo
+                            ? 'bg-sky-50 border-[#007DC5] ring-1 ring-[#007DC5]'
+                            : 'bg-white border-slate-200 hover:bg-slate-50'
+                        }`}
+                      >
+                        <div className="text-xs font-bold text-slate-900">
+                          {opcion.titulo}
+                        </div>
+                        <div className="text-[11px] text-slate-500 mt-0.5">
+                          {opcion.desc}
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div className="space-y-2 border-t border-slate-200/80 pt-3">
+                <div className="text-xs font-semibold text-slate-700">
+                  Selecciona qué secciones deseas arrastrar (desmarca las que prefieras iniciar limpias):
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  <label className="flex items-start gap-2 text-xs text-slate-800 bg-white p-2.5 rounded-lg border border-slate-200 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={conservarActividades}
+                      onChange={(e) => setConservarActividades(e.target.checked)}
+                      className="accent-blue-700 mt-0.5"
+                    />
+                    <span>
+                      <strong>Actividades diarias semanales</strong>
+                      <span className="block text-[11px] text-slate-500">
+                        Copiar las actividades de lunes a viernes como base
+                      </span>
+                    </span>
+                  </label>
+
+                  <label className="flex items-start gap-2 text-xs text-slate-800 bg-white p-2.5 rounded-lg border border-slate-200 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={conservarFelicitacionesClonar}
+                      onChange={(e) =>
+                        setConservarFelicitacionesClonar(e.target.checked)
+                      }
+                      className="accent-blue-700 mt-0.5"
+                    />
+                    <span>
+                      <strong>Reconocimientos a Docentes ({boletin.felicitaciones.length})</strong>
+                      <span className="block text-[11px] text-slate-500">
+                        {conservarFelicitacionesClonar
+                          ? 'Se arrastran a la nueva semana'
+                          : 'Inicia limpio (0 reconocimientos)'}
+                      </span>
+                    </span>
+                  </label>
+
+                  <label className="flex items-start gap-2 text-xs text-slate-800 bg-white p-2.5 rounded-lg border border-slate-200 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={conservarSuspensionesClonar}
+                      onChange={(e) =>
+                        setConservarSuspensionesClonar(e.target.checked)
+                      }
+                      className="accent-blue-700 mt-0.5"
+                    />
+                    <span>
+                      <strong>Próximas Suspensiones ({boletin.suspensiones.length})</strong>
+                      <span className="block text-[11px] text-slate-500">
+                        {conservarSuspensionesClonar
+                          ? 'Se arrastran a la nueva semana'
+                          : 'Inicia limpio (0 suspensiones)'}
+                      </span>
+                    </span>
+                  </label>
+
+                  <label className="flex items-start gap-2 text-xs text-slate-800 bg-white p-2.5 rounded-lg border border-slate-200 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={conservarAvisosPracticasClonar}
+                      onChange={(e) =>
+                        setConservarAvisosPracticasClonar(e.target.checked)
+                      }
+                      className="accent-blue-700 mt-0.5"
+                    />
+                    <span>
+                      <strong>Directrices Noti-Prácticas ({boletin.avisosPracticas.length})</strong>
+                      <span className="block text-[11px] text-slate-500">
+                        {conservarAvisosPracticasClonar
+                          ? 'Conserva las directrices permanentes'
+                          : 'Inicia limpio (0 directrices)'}
+                      </span>
+                    </span>
+                  </label>
+                </div>
+              </div>
+            </div>
 
             <div className="pt-2 flex items-center gap-3">
               <button
                 type="submit"
-                className="px-5 py-2.5 text-xs font-semibold text-white bg-[#007DC5] hover:bg-[#034EA2] rounded-lg shadow-2xs transition-colors"
+                className="px-5 py-2.5 text-xs font-semibold text-white bg-[#007DC5] hover:bg-[#034EA2] rounded-lg shadow-2xs transition-colors cursor-pointer"
               >
                 Crear y Activar NotiProfes N° {boletin.numero + 1}
               </button>
               <button
                 type="button"
                 onClick={() => cambiarTab('semanal', 'Programación Semanal')}
-                className="px-4 py-2.5 text-xs font-medium text-slate-600 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors"
+                className="px-4 py-2.5 text-xs font-medium text-slate-600 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors cursor-pointer"
               >
                 Volver a la Mesa
               </button>

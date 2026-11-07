@@ -52,6 +52,11 @@ interface EstadoAlmacenamiento {
   boletines: BoletinSemanal[];
 }
 
+function contarActividadesBoletin(dias: BoletinSemanal['dias'] | undefined): number {
+  if (!Array.isArray(dias)) return 0;
+  return dias.reduce((acc, d) => acc + (Array.isArray(d.actividades) ? d.actividades.length : 0), 0);
+}
+
 function normalizarListaBoletines(boletines: BoletinSemanal[]): BoletinSemanal[] {
   const mapa = new Map<number, BoletinSemanal>();
 
@@ -62,7 +67,9 @@ function normalizarListaBoletines(boletines: BoletinSemanal[]): BoletinSemanal[]
 
   for (const b of boletines) {
     if (b.numero === 39) {
-      const diasValidos39 = b.dias?.[0]?.fechaTexto === 'LUNES 26 DE OCTUBRE';
+      const diasValidos39 =
+        b.dias?.[0]?.fechaTexto === 'LUNES 26 DE OCTUBRE' &&
+        contarActividadesBoletin(b.dias) > 0;
       mapa.set(39, {
         ...BOLETIN_39_SEED,
         ...b,
@@ -75,7 +82,8 @@ function normalizarListaBoletines(boletines: BoletinSemanal[]): BoletinSemanal[]
     } else if (b.numero === 40) {
       const diasValidos40 =
         b.dias?.[0]?.fechaTexto === 'LUNES 2 DE NOVIEMBRE' &&
-        b.dias?.[0]?.id === 'dia-lunes';
+        b.dias?.[0]?.id === 'dia-lunes' &&
+        contarActividadesBoletin(b.dias) > 0;
       mapa.set(40, {
         ...BOLETIN_40_SEED,
         ...b,
@@ -86,7 +94,9 @@ function normalizarListaBoletines(boletines: BoletinSemanal[]): BoletinSemanal[]
         dias: diasValidos40 ? b.dias : BOLETIN_40_SEED.dias,
       });
     } else if (b.numero === 41) {
-      const diasValidos41 = b.dias?.[0]?.fechaTexto === 'LUNES 9 DE NOVIEMBRE';
+      const diasValidos41 =
+        b.dias?.[0]?.fechaTexto === 'LUNES 9 DE NOVIEMBRE' &&
+        contarActividadesBoletin(b.dias) > 0;
       mapa.set(41, {
         ...BOLETIN_41_SEED,
         ...b,
@@ -559,9 +569,21 @@ function obtenerConfiguracionSmtpEntorno() {
 }
 
 function construirHtmlCorreoNotificacion(
-  boletin: BoletinSemanal,
+  boletinEntrada: BoletinSemanal,
   urlConsultaPublica: string
 ): string {
+  // Garantizar que si el boletín corresponde a una edición semilla (39, 40, 41) y sus días estaban vacíos, use los datos cargados de su semilla
+  let boletin = boletinEntrada;
+  if (contarActividadesBoletin(boletin.dias) === 0) {
+    if (boletin.numero === 41) {
+      boletin = { ...boletin, dias: BOLETIN_41_SEED.dias };
+    } else if (boletin.numero === 40) {
+      boletin = { ...boletin, dias: BOLETIN_40_SEED.dias };
+    } else if (boletin.numero === 39) {
+      boletin = { ...boletin, dias: BOLETIN_39_SEED.dias };
+    }
+  }
+
   const totalActividades = boletin.dias.reduce(
     (acc, d) => acc + d.actividades.length,
     0
@@ -571,20 +593,107 @@ function construirHtmlCorreoNotificacion(
     0
   );
 
-  const resumenDias = boletin.dias
+  const bloquesDiasHtml = boletin.dias
     .map((d) => {
       if (d.esFestivo && d.actividades.length === 0) {
-        return `<li style="margin-bottom:6px;"><strong>${d.fechaTexto}:</strong> <span style="color:#ED145B;font-weight:700;">${d.notaHorario || 'DÍA FESTIVO'}</span></li>`;
+        return `
+        <div style="margin-bottom:12px;background:#fff1f2;border:1px solid #fecdd3;border-radius:8px;padding:10px 14px;">
+          <div style="font-size:12.5px;font-weight:800;color:#be123c;text-transform:uppercase;">
+            ${d.fechaTexto} · ${d.notaHorario || 'DÍA FESTIVO'}
+          </div>
+          <div style="font-size:12px;color:#881337;margin-top:2px;">
+            Receso académico oficial por día festivo nacional.
+          </div>
+        </div>`;
       }
-      return `<li style="margin-bottom:6px;"><strong>${d.fechaTexto}:</strong> ${d.actividades.length} actividad(es) programada(s)</li>`;
+
+      if (d.actividades.length === 0) {
+        return `
+        <div style="margin-bottom:12px;background:#ffffff;border:1px solid #e2e8f0;border-radius:8px;padding:10px 14px;">
+          <div style="font-size:12.5px;font-weight:800;color:#034EA2;text-transform:uppercase;">
+            ${d.fechaTexto}${d.notaHorario ? ` · <span style="color:#475569;font-weight:600;">${d.notaHorario}</span>` : ''}
+          </div>
+          <div style="font-size:12px;color:#64748b;margin-top:4px;">
+            Desarrollo académico habitual según horario general de clases.
+          </div>
+        </div>`;
+      }
+
+      const itemsActividades = d.actividades
+        .map((act) => {
+          const badgeReprog = act.reprogramada
+            ? `<span style="display:inline-block;background:#fef3c7;color:#92400e;border:1px solid #fde68a;font-size:10px;font-weight:800;padding:1px 6px;border-radius:4px;margin-left:6px;">REPROGRAMADA</span>`
+            : '';
+          const notaReprog =
+            act.reprogramada && act.notaReprogramacion
+              ? `<div style="font-size:11.5px;color:#b45309;margin-top:3px;font-weight:600;">↳ Nota: ${act.notaReprogramacion}</div>`
+              : '';
+          return `
+            <li style="margin-bottom:8px;padding-bottom:8px;border-bottom:1px dashed #e2e8f0;list-style:none;">
+              <div style="font-size:13px;font-weight:700;color:#0f172a;line-height:1.35;">
+                ${act.titulo}${badgeReprog}
+              </div>
+              <div style="font-size:11.5px;color:#334155;margin-top:3px;">
+                <strong>Hora:</strong> ${act.hora} &nbsp;|&nbsp; <strong>Lugar:</strong> ${act.lugar} &nbsp;|&nbsp; <strong>Responsable:</strong> ${act.responsable}
+              </div>
+              ${notaReprog}
+            </li>`;
+        })
+        .join('');
+
+      return `
+        <div style="margin-bottom:12px;background:#ffffff;border:1px solid #dbe4f0;border-radius:8px;overflow:hidden;">
+          <div style="background:#eff6ff;padding:8px 14px;border-bottom:1px solid #dbe4f0;font-size:12.5px;font-weight:800;color:#034EA2;text-transform:uppercase;">
+            ${d.fechaTexto} (${d.actividades.length} actividad${d.actividades.length === 1 ? '' : 'es'})
+          </div>
+          <ul style="margin:0;padding:10px 14px 2px 14px;">
+            ${itemsActividades}
+          </ul>
+        </div>`;
     })
     .join('');
+
+  const documentosHtml =
+    boletin.documentosPermanentes && boletin.documentosPermanentes.length > 0
+      ? `
+      <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:14px 16px;margin-bottom:18px;">
+        <div style="font-size:11.5px;font-weight:800;text-transform:uppercase;color:#034EA2;margin-bottom:6px;">
+          Documentos Institucionales y Horarios (${boletin.documentosPermanentes.length})
+        </div>
+        <ul style="margin:0;padding-left:18px;font-size:12.5px;color:#334155;">
+          ${boletin.documentosPermanentes
+            .map(
+              (doc) =>
+                `<li style="margin-bottom:4px;"><strong>${doc.categoria}:</strong> ${doc.titulo}</li>`
+            )
+            .join('')}
+        </ul>
+      </div>`
+      : '';
+
+  const felicitacionesHtml =
+    boletin.felicitaciones && boletin.felicitaciones.length > 0
+      ? `
+      <div style="background:#fffbeb;border:1px solid #fde68a;border-radius:10px;padding:14px 16px;margin-bottom:18px;">
+        <div style="font-size:11.5px;font-weight:800;text-transform:uppercase;color:#92400e;margin-bottom:6px;">
+          Reconocimientos a Docentes (${boletin.felicitaciones.length})
+        </div>
+        <ul style="margin:0;padding-left:18px;font-size:12.5px;color:#78350f;">
+          ${boletin.felicitaciones
+            .map(
+              (f) =>
+                `<li style="margin-bottom:4px;"><strong>${f.docentes}:</strong> ${f.motivo}</li>`
+            )
+            .join('')}
+        </ul>
+      </div>`
+      : '';
 
   return `<!DOCTYPE html>
 <html lang="es">
 <head><meta charset="UTF-8" /></head>
 <body style="margin:0;padding:24px;background-color:#EEF3F9;font-family:'Segoe UI',Arial,sans-serif;color:#0F172A;">
-  <div style="max-width:640px;margin:0 auto;background:#ffffff;border-radius:14px;overflow:hidden;border:1px solid #dbe4f0;">
+  <div style="max-width:660px;margin:0 auto;background:#ffffff;border-radius:14px;overflow:hidden;border:1px solid #dbe4f0;">
     <div style="height:6px;background:linear-gradient(90deg,#034EA2 0%,#007DC5 65%,#ED145B 100%);"></div>
     <div style="background:linear-gradient(135deg,#022c5e 0%,#034EA2 55%,#007DC5 100%);color:#ffffff;padding:24px 28px;">
       <div style="display:inline-block;background:#ED145B;color:#ffffff;font-weight:800;font-size:13px;padding:4px 12px;border-radius:6px;margin-bottom:10px;">
@@ -602,13 +711,14 @@ function construirHtmlCorreoNotificacion(
       </p>
 
       <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:16px;margin-bottom:18px;">
-        <div style="font-size:12px;font-weight:800;text-transform:uppercase;color:#034EA2;margin-bottom:8px;">
-          Resumen de la Programación Semanal (${totalActividades} actividades${totalReprogramadas > 0 ? ` · ${totalReprogramadas} reprogramada(s)` : ''})
+        <div style="font-size:12px;font-weight:800;text-transform:uppercase;color:#034EA2;margin-bottom:10px;">
+          Programación Semanal Detallada (${totalActividades} actividades${totalReprogramadas > 0 ? ` · ${totalReprogramadas} reprogramada(s)` : ''})
         </div>
-        <ul style="margin:0;padding-left:18px;font-size:13px;color:#334155;">
-          ${resumenDias}
-        </ul>
+        ${bloquesDiasHtml}
       </div>
+
+      ${documentosHtml}
+      ${felicitacionesHtml}
 
       <div style="border-left:4px solid #007DC5;padding:10px 14px;background:#f0f9ff;border-radius:0 8px 8px 0;margin-bottom:22px;font-size:12.5px;font-style:italic;color:#1e293b;">
         "${boletin.frasePedagogica}" — <strong>${boletin.autorFrase}</strong>
@@ -1300,7 +1410,8 @@ async function iniciarServidor() {
 
       if (
         (operacion.tipo === 'agregar_suspension' ||
-          operacion.tipo === 'eliminar_suspension') &&
+          operacion.tipo === 'eliminar_suspension' ||
+          operacion.tipo === 'limpiar_suspensiones') &&
         !esAdmin &&
         !perms?.puedeEditarSuspensiones
       ) {
@@ -1376,13 +1487,25 @@ async function iniciarServidor() {
         return;
       }
 
-      const { semanaTexto, fechaEmision, descripcionPeriodo, conservarActividades } =
-        req.body as {
-          semanaTexto?: string;
-          fechaEmision?: string;
-          descripcionPeriodo?: string;
-          conservarActividades?: boolean;
-        };
+      const {
+        semanaTexto,
+        fechaEmision,
+        descripcionPeriodo,
+        conservarActividades,
+        modoEventosLargoPlazo,
+        conservarFelicitaciones,
+        conservarSuspensiones,
+        conservarAvisosPracticas,
+      } = req.body as {
+        semanaTexto?: string;
+        fechaEmision?: string;
+        descripcionPeriodo?: string;
+        conservarActividades?: boolean;
+        modoEventosLargoPlazo?: 'futuras' | 'todas' | 'ninguna';
+        conservarFelicitaciones?: boolean;
+        conservarSuspensiones?: boolean;
+        conservarAvisosPracticas?: boolean;
+      };
 
       if (!semanaTexto || !fechaEmision) {
         res.status(400).json({
@@ -1397,8 +1520,24 @@ async function iniciarServidor() {
         fechaEmision,
         descripcionPeriodo,
         conservarActividades: Boolean(conservarActividades),
+        modoEventosLargoPlazo: modoEventosLargoPlazo || 'futuras',
+        conservarFelicitaciones:
+          typeof conservarFelicitaciones === 'boolean' ? conservarFelicitaciones : true,
+        conservarSuspensiones:
+          typeof conservarSuspensiones === 'boolean' ? conservarSuspensiones : true,
+        conservarAvisosPracticas:
+          typeof conservarAvisosPracticas === 'boolean' ? conservarAvisosPracticas : true,
         autor: autorVerificado,
       });
+
+      // Si el boletín clonado es la edición 41 y se clonó sin copiar actividades de la 40, conservar las actividades semilla de la 41 si existían
+      if (
+        nuevoBoletin.numero === 41 &&
+        !conservarActividades &&
+        contarActividadesBoletin(nuevoBoletin.dias) === 0
+      ) {
+        nuevoBoletin.dias = BOLETIN_41_SEED.dias;
+      }
 
       // Evitar colisión si ya se había clonado ese número
       const existenteIdx = estadoDb.boletines.findIndex((b) => b.id === nuevoBoletin.id);
@@ -1416,8 +1555,11 @@ async function iniciarServidor() {
         boletin: nuevoBoletin,
       });
 
-      // Si las notificaciones automáticas están activas, notificar a los docentes el nuevo boletín oficial
-      if (preferenciasNotificacion.notificarAutomaticamenteAlPublicar) {
+      // Solo enviar notificación automática al clonar si el nuevo boletín ya cuenta con actividades cargadas (> 0)
+      if (
+        preferenciasNotificacion.notificarAutomaticamenteAlPublicar &&
+        contarActividadesBoletin(nuevoBoletin.dias) > 0
+      ) {
         enviarNotificacionBoletinSmtp(nuevoBoletin, 'nuevo_boletin_clonado').catch((err) =>
           console.error('Error en envío SMTP automático al clonar boletín:', err)
         );

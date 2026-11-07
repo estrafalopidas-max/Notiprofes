@@ -2,6 +2,8 @@ import {
   ActividadProgramada,
   BoletinSemanal,
   DiaProgramacion,
+  EventoLargoPlazo,
+  OpcionesClonarBoletin,
   OperacionBoletin,
 } from '../types/notiprofes';
 import {
@@ -10,6 +12,148 @@ import {
   generarDiasSiguienteSemanaConFestivos,
   obtenerCalendarioOficialBoletin,
 } from './calendarioEscolar2026';
+
+const MAPA_MESES_ES: Record<string, number> = {
+  enero: 0,
+  ene: 0,
+  febrero: 1,
+  feb: 1,
+  marzo: 2,
+  mar: 2,
+  abril: 3,
+  abr: 3,
+  mayo: 4,
+  may: 4,
+  junio: 5,
+  jun: 5,
+  julio: 6,
+  jul: 6,
+  agosto: 7,
+  ago: 7,
+  septiembre: 8,
+  sep: 8,
+  sept: 8,
+  setiembre: 8,
+  octubre: 9,
+  oct: 9,
+  noviembre: 10,
+  nov: 10,
+  diciembre: 11,
+  dic: 11,
+};
+
+/**
+ * Obtiene la fecha de referencia (lunes de la semana del boletín) para evaluar qué actividades a largo plazo siguen vigentes.
+ */
+export function extraerFechaReferenciaSemana(
+  diasSemana: DiaProgramacion[],
+  fechaEmision?: string,
+  anioDefecto = 2026
+): Date {
+  // 1. Intentar extraer del primer día de la programación semanal (ej. "LUNES 9 DE NOVIEMBRE")
+  const primerDiaTexto = (diasSemana?.[0]?.fechaTexto || '').toLowerCase();
+  const matchDia = primerDiaTexto.match(
+    /(\d{1,2})\s+de\s+(enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|setiembre|octubre|noviembre|diciembre)/i
+  );
+  if (matchDia) {
+    const dia = Number(matchDia[1]);
+    const mes = MAPA_MESES_ES[matchDia[2].toLowerCase()];
+    if (mes !== undefined) {
+      return new Date(anioDefecto, mes, dia, 0, 0, 0, 0);
+    }
+  }
+
+  // 2. Respaldo usando fechaEmision (DD/MM/YYYY) restando 4 días (viernes -> lunes)
+  if (fechaEmision) {
+    const partes = fechaEmision.trim().split('/');
+    if (partes.length === 3) {
+      const d = Number(partes[0]);
+      const m = Number(partes[1]) - 1;
+      const y = Number(partes[2]);
+      if (!isNaN(d) && !isNaN(m) && !isNaN(y)) {
+        const fechaViernes = new Date(y, m, d, 0, 0, 0, 0);
+        fechaViernes.setDate(fechaViernes.getDate() - 4);
+        return fechaViernes;
+      }
+    }
+  }
+
+  return new Date(anioDefecto, 0, 1, 0, 0, 0, 0);
+}
+
+/**
+ * Determina la última fecha mencionada en el texto de un EventoLargoPlazo (ej. "Del 9 al 13 de noviembre" -> 13 nov).
+ * Si el texto no contiene una fecha específica reconocible, devuelve null para conservarlo por seguridad.
+ */
+export function extraerFechaFinEventoLargoPlazo(
+  fechaTexto: string,
+  anioBase = 2026
+): Date | null {
+  const texto = (fechaTexto || '').toLowerCase().trim();
+  if (!texto) return null;
+
+  const matchAnioExplicito = texto.match(/\b(20\d{2})\b/);
+  const anioEvento = matchAnioExplicito ? Number(matchAnioExplicito[1]) : anioBase;
+
+  // Buscar todas las menciones de "<día> [de] <mes> [de <año>]"
+  const regexDiaMes =
+    /(\d{1,2})\s*(?:de\s+)?(enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|setiembre|octubre|noviembre|diciembre|ene|feb|mar|abr|may|jun|jul|ago|sep|sept|oct|nov|dic)\b(?:\s*(?:de\s+)?(20\d{2}))?/gi;
+
+  let coincidencia: RegExpExecArray | null;
+  let ultimaFecha: Date | null = null;
+
+  while ((coincidencia = regexDiaMes.exec(texto)) !== null) {
+    const dia = Number(coincidencia[1]);
+    const mes = MAPA_MESES_ES[coincidencia[2].toLowerCase()];
+    const anio = coincidencia[3] ? Number(coincidencia[3]) : anioEvento;
+    if (dia >= 1 && dia <= 31 && mes !== undefined) {
+      const candidata = new Date(anio, mes, dia, 23, 59, 59, 999);
+      if (!ultimaFecha || candidata.getTime() > ultimaFecha.getTime()) {
+        ultimaFecha = candidata;
+      }
+    }
+  }
+
+  if (ultimaFecha) {
+    return ultimaFecha;
+  }
+
+  // Si solo menciona el mes y año (ej. "Noviembre 2026"), usar el último día de ese mes
+  const regexSoloMes =
+    /\b(enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|setiembre|octubre|noviembre|diciembre)\b(?:\s*(?:de\s+)?(20\d{2}))?/i;
+  const matchSoloMes = texto.match(regexSoloMes);
+  if (matchSoloMes) {
+    const mes = MAPA_MESES_ES[matchSoloMes[1].toLowerCase()];
+    const anio = matchSoloMes[2] ? Number(matchSoloMes[2]) : anioEvento;
+    if (mes !== undefined) {
+      return new Date(anio, mes + 1, 0, 23, 59, 59, 999);
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Filtra la lista de eventos del Cronograma Anual y Actividades a Largo Plazo,
+ * conservando únicamente las actividades futuras o vigentes para la semana del boletín.
+ */
+export function filtrarEventosLargoPlazoVigentes(
+  eventos: EventoLargoPlazo[],
+  diasSemana: DiaProgramacion[],
+  fechaEmision?: string,
+  anioDefecto = 2026
+): EventoLargoPlazo[] {
+  const fechaReferencia = extraerFechaReferenciaSemana(
+    diasSemana,
+    fechaEmision,
+    anioDefecto
+  );
+  return eventos.filter((ev) => {
+    const fechaFin = extraerFechaFinEventoLargoPlazo(ev.fechaTexto, anioDefecto);
+    if (!fechaFin) return true;
+    return fechaFin.getTime() >= fechaReferencia.getTime();
+  });
+}
 
 export interface CriteriosFiltroBoletin {
   busqueda: string;
@@ -193,6 +337,23 @@ export function aplicarOperacionBoletin(
       break;
     }
 
+    case 'limpiar_eventos_largo_plazo': {
+      const anioCal = obtenerCalendarioOficialBoletin(baseActualizada).anio;
+      boletinModificado = {
+        ...baseActualizada,
+        proyeccionCalendario:
+          op.modo === 'solo_vencidos'
+            ? filtrarEventosLargoPlazoVigentes(
+                baseActualizada.proyeccionCalendario,
+                baseActualizada.dias,
+                baseActualizada.fechaEmision,
+                anioCal
+              )
+            : [],
+      };
+      break;
+    }
+
     case 'agregar_felicitacion': {
       if (baseActualizada.felicitaciones.some((f) => f.id === op.felicitacion.id)) {
         return baseActualizada;
@@ -208,6 +369,14 @@ export function aplicarOperacionBoletin(
       boletinModificado = {
         ...baseActualizada,
         felicitaciones: baseActualizada.felicitaciones.filter((f) => f.id !== op.felicitacionId),
+      };
+      break;
+    }
+
+    case 'limpiar_felicitaciones': {
+      boletinModificado = {
+        ...baseActualizada,
+        felicitaciones: [],
       };
       break;
     }
@@ -228,6 +397,14 @@ export function aplicarOperacionBoletin(
       break;
     }
 
+    case 'limpiar_avisos_practicas': {
+      boletinModificado = {
+        ...baseActualizada,
+        avisosPracticas: [],
+      };
+      break;
+    }
+
     case 'agregar_suspension': {
       if (baseActualizada.suspensiones.some((s) => s.id === op.suspension.id)) {
         return baseActualizada;
@@ -243,6 +420,14 @@ export function aplicarOperacionBoletin(
       boletinModificado = {
         ...baseActualizada,
         suspensiones: baseActualizada.suspensiones.filter((s) => s.id !== op.suspensionId),
+      };
+      break;
+    }
+
+    case 'limpiar_suspensiones': {
+      boletinModificado = {
+        ...baseActualizada,
+        suspensiones: [],
       };
       break;
     }
@@ -356,6 +541,17 @@ export function aplicarOperacionBoletin(
       accion = 'Eliminar Evento';
       descripcion = `Se eliminó un evento del calendario a largo plazo.`;
       break;
+    case 'limpiar_eventos_largo_plazo':
+      seccion = 'Calendario a Largo Plazo';
+      accion =
+        op.modo === 'solo_vencidos'
+          ? 'Depurar Actividades Vencidas'
+          : 'Limpiar Lista Completa';
+      descripcion =
+        op.modo === 'solo_vencidos'
+          ? `Se depuraron las actividades pasadas conservando ${boletinModificado.proyeccionCalendario.length} actividad(es) futura(s) vigente(s).`
+          : `Se vació la lista de actividades del cronograma a largo plazo.`;
+      break;
     case 'agregar_felicitacion':
       seccion = 'Noti-Prácticas';
       accion = 'Agregar Felicitación';
@@ -365,6 +561,11 @@ export function aplicarOperacionBoletin(
       seccion = 'Noti-Prácticas';
       accion = 'Eliminar Felicitación';
       descripcion = `Se eliminó una mención de honor.`;
+      break;
+    case 'limpiar_felicitaciones':
+      seccion = 'Noti-Prácticas';
+      accion = 'Limpiar Felicitaciones';
+      descripcion = `Se vació la lista de reconocimientos a docentes.`;
       break;
     case 'agregar_aviso_practica':
       seccion = 'Noti-Prácticas';
@@ -376,6 +577,11 @@ export function aplicarOperacionBoletin(
       accion = 'Eliminar Recomendación';
       descripcion = `Se eliminó una directriz general.`;
       break;
+    case 'limpiar_avisos_practicas':
+      seccion = 'Noti-Prácticas';
+      accion = 'Limpiar Recomendaciones';
+      descripcion = `Se vació la lista de avisos y directrices de Noti-Prácticas.`;
+      break;
     case 'agregar_suspension':
       seccion = 'Noti-Prácticas (Suspensiones)';
       accion = 'Registrar Suspensión';
@@ -385,6 +591,11 @@ export function aplicarOperacionBoletin(
       seccion = 'Noti-Prácticas (Suspensiones)';
       accion = 'Eliminar Suspensión';
       descripcion = `Se eliminó un registro de suspensión.`;
+      break;
+    case 'limpiar_suspensiones':
+      seccion = 'Noti-Prácticas (Suspensiones)';
+      accion = 'Limpiar Suspensiones';
+      descripcion = `Se vació la tabla de próximas suspensiones de convivencia.`;
       break;
     case 'actualizar_horario_apoyo':
       seccion = 'Horarios Personal de Apoyo';
@@ -445,18 +656,12 @@ export function aplicarOperacionBoletin(
 
 /**
  * Clona un boletín existente para generar la edición de la siguiente semana,
- * conservando documentos institucionales, proyección de calendario a largo plazo,
- * horarios de personal de apoyo y firmas directivas.
+ * aplicando las opciones preventivas de limpieza para secciones arrastradas y
+ * conservando únicamente las actividades futuras vigentes en el cronograma a largo plazo cuando se solicita.
  */
 export function clonarBoletinSiguienteSemana(
   actual: BoletinSemanal,
-  datosNuevaSemana: {
-    semanaTexto: string;
-    fechaEmision: string;
-    descripcionPeriodo?: string;
-    autor: string;
-    conservarActividades?: boolean;
-  }
+  datosNuevaSemana: OpcionesClonarBoletin & { autor: string }
 ): BoletinSemanal {
   const nuevoNumero = actual.numero + 1;
   const calendarioActivo = obtenerCalendarioOficialBoletin(actual);
@@ -468,6 +673,51 @@ export function clonarBoletinSiguienteSemana(
     ? formatearRangoSemanaSegunMeses([], datosNuevaSemana.semanaTexto)
     : semanaTextoNuevo;
 
+  const diasConstruidos = actual.dias.map((dia, index) => {
+    const metaDia = diasNuevos[index];
+    return {
+      ...dia,
+      fechaTexto: metaDia ? metaDia.fechaTexto : dia.fechaTexto,
+      esFestivo: metaDia ? metaDia.esFestivo : false,
+      notaHorario: metaDia ? metaDia.notaHorario : undefined,
+      incluirDocumentosBase: index === 0,
+      actividades: datosNuevaSemana.conservarActividades
+        ? dia.actividades.map((a) => ({
+            ...a,
+            id: `${a.id}-n${nuevoNumero}`,
+            reprogramada: false,
+            notaReprogramacion: undefined,
+          }))
+        : [],
+    };
+  });
+
+  const modoLP = datosNuevaSemana.modoEventosLargoPlazo || 'futuras';
+  const proyeccionFiltrada =
+    modoLP === 'ninguna'
+      ? []
+      : modoLP === 'todas'
+        ? actual.proyeccionCalendario
+        : filtrarEventosLargoPlazoVigentes(
+            actual.proyeccionCalendario,
+            diasConstruidos,
+            datosNuevaSemana.fechaEmision,
+            calendarioActivo.anio
+          );
+
+  const conservarFel =
+    datosNuevaSemana.conservarFelicitaciones !== undefined
+      ? datosNuevaSemana.conservarFelicitaciones
+      : true;
+  const conservarSusp =
+    datosNuevaSemana.conservarSuspensiones !== undefined
+      ? datosNuevaSemana.conservarSuspensiones
+      : true;
+  const conservarAvisos =
+    datosNuevaSemana.conservarAvisosPracticas !== undefined
+      ? datosNuevaSemana.conservarAvisosPracticas
+      : true;
+
   return {
     ...actual,
     id: `notiprofes-${calendarioActivo.anio}-${nuevoNumero}`,
@@ -478,24 +728,11 @@ export function clonarBoletinSiguienteSemana(
     ultimaActualizacion: new Date().toISOString(),
     actualizadoPor: datosNuevaSemana.autor,
     drivePdfInfo: undefined,
-    dias: actual.dias.map((dia, index) => {
-      const metaDia = diasNuevos[index];
-      return {
-        ...dia,
-        fechaTexto: metaDia ? metaDia.fechaTexto : dia.fechaTexto,
-        esFestivo: metaDia ? metaDia.esFestivo : false,
-        notaHorario: metaDia ? metaDia.notaHorario : undefined,
-        incluirDocumentosBase: index === 0,
-        actividades: datosNuevaSemana.conservarActividades
-          ? dia.actividades.map((a) => ({
-              ...a,
-              id: `${a.id}-n${nuevoNumero}`,
-              reprogramada: false,
-              notaReprogramacion: undefined,
-            }))
-          : [],
-      };
-    }),
+    dias: diasConstruidos,
+    proyeccionCalendario: proyeccionFiltrada,
+    felicitaciones: conservarFel ? actual.felicitaciones : [],
+    suspensiones: conservarSusp ? actual.suspensiones : [],
+    avisosPracticas: conservarAvisos ? actual.avisosPracticas : [],
   };
 }
 

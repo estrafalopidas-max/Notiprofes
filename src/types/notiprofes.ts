@@ -242,6 +242,11 @@ export type OperacionBoletin =
       autor: string;
     }
   | {
+      tipo: 'limpiar_eventos_largo_plazo';
+      modo: 'todos' | 'solo_vencidos';
+      autor: string;
+    }
+  | {
       tipo: 'agregar_felicitacion';
       felicitacion: FelicitacionDocente;
       autor: string;
@@ -249,6 +254,10 @@ export type OperacionBoletin =
   | {
       tipo: 'eliminar_felicitacion';
       felicitacionId: string;
+      autor: string;
+    }
+  | {
+      tipo: 'limpiar_felicitaciones';
       autor: string;
     }
   | {
@@ -262,6 +271,10 @@ export type OperacionBoletin =
       autor: string;
     }
   | {
+      tipo: 'limpiar_avisos_practicas';
+      autor: string;
+    }
+  | {
       tipo: 'agregar_suspension';
       suspension: SuspensionEstudiante;
       autor: string;
@@ -269,6 +282,10 @@ export type OperacionBoletin =
   | {
       tipo: 'eliminar_suspension';
       suspensionId: string;
+      autor: string;
+    }
+  | {
+      tipo: 'limpiar_suspensiones';
       autor: string;
     }
   | {
@@ -319,3 +336,15 @@ export type OperacionBoletin =
       drivePdfInfo: DrivePdfMetadata;
       autor: string;
     };
+
+export interface OpcionesClonarBoletin {
+  semanaTexto: string;
+  fechaEmision: string;
+  descripcionPeriodo?: string;
+  conservarActividades?: boolean;
+  modoEventosLargoPlazo?: 'futuras' | 'todas' | 'ninguna';
+  conservarFelicitaciones?: boolean;
+  conservarSuspensiones?: boolean;
+  conservarAvisosPracticas?: boolean;
+}
+

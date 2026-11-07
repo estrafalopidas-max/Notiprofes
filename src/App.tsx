@@ -26,6 +26,7 @@ import {
 import { BOLETIN_39_SEED, BOLETIN_40_SEED, BOLETIN_41_SEED } from './data/seedNotiprofes40';
 import {
   BoletinSemanal,
+  OpcionesClonarBoletin,
   OperacionBoletin,
   PresenciaActiva,
   UsuarioDirectivo,
@@ -452,12 +453,7 @@ export default function App() {
     }
   };
 
-  const handleClonarSemana = async (datos: {
-    semanaTexto: string;
-    fechaEmision: string;
-    descripcionPeriodo: string;
-    conservarActividades: boolean;
-  }): Promise<boolean> => {
+  const handleClonarSemana = async (datos: OpcionesClonarBoletin): Promise<boolean> => {
     if (!tokenSesion) {
       setModalLoginAbierto(true);
       return false;
