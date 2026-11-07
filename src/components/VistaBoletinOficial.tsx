@@ -107,16 +107,17 @@ export const VistaBoletinOficial: React.FC<VistaBoletinOficialProps> = ({
   }, [listaBoletines, anioActualBoletin]);
 
   const boletinesFiltradosPorAnio = useMemo(() => {
-    if (aniosDisponibles.length <= 1) {
-      return listaBoletines;
-    }
-    return listaBoletines.filter((b) => {
-      const matchFecha = (b.fechaEmision || '').match(/\b(20\d{2})\b/);
-      if (matchFecha?.[1]) return Number(matchFecha[1]) === anioSeleccionado;
-      const matchSem = (b.semanaTexto || '').match(/\b(20\d{2})\b/);
-      if (matchSem?.[1]) return Number(matchSem[1]) === anioSeleccionado;
-      return anioSeleccionado === 2026;
-    });
+    const lista =
+      aniosDisponibles.length <= 1
+        ? [...listaBoletines]
+        : listaBoletines.filter((b) => {
+            const matchFecha = (b.fechaEmision || '').match(/\b(20\d{2})\b/);
+            if (matchFecha?.[1]) return Number(matchFecha[1]) === anioSeleccionado;
+            const matchSem = (b.semanaTexto || '').match(/\b(20\d{2})\b/);
+            if (matchSem?.[1]) return Number(matchSem[1]) === anioSeleccionado;
+            return anioSeleccionado === 2026;
+          });
+    return lista.sort((a, b) => b.numero - a.numero);
   }, [listaBoletines, aniosDisponibles.length, anioSeleccionado]);
 
   const toggleCalendarioAbierto = () => {
@@ -527,10 +528,21 @@ export const VistaBoletinOficial: React.FC<VistaBoletinOficialProps> = ({
               valorSeleccionado={boletin.id}
               onChange={(nuevoId) => onSeleccionarBoletin(nuevoId)}
               alineacionMenu="derecha"
-              opciones={boletinesFiltradosPorAnio.map((item) => ({
-                valor: item.id,
-                etiqueta: `Edición N° ${item.numero} (${item.fechaEmision})`,
-              }))}
+              opciones={boletinesFiltradosPorAnio.map((item) => {
+                let encabezadoGrupo = 'Desarrollo Institucional (Semanas 44+)';
+                if (item.numero <= 13) {
+                  encabezadoGrupo = 'Primer Periodo (Semanas 1 - 13)';
+                } else if (item.numero <= 30) {
+                  encabezadoGrupo = 'Segundo Periodo (Semanas 14 - 30)';
+                } else if (item.numero <= 43) {
+                  encabezadoGrupo = 'Tercer Periodo (Semanas 31 - 43)';
+                }
+                return {
+                  valor: item.id,
+                  etiqueta: `Edición N° ${item.numero} (${item.fechaEmision})`,
+                  encabezadoGrupo,
+                };
+              })}
             />
           )}
 

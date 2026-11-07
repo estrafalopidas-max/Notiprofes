@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import {
   AlertTriangle,
   Check,
+  Clock,
   CloudUpload,
   Copy,
   Download,
@@ -896,14 +897,30 @@ export const ModalPublicacionNube: React.FC<ModalPublicacionNubeProps> = ({
                   }`}
                 >
                   {tieneCambiosPendientesEnPdfDrive
-                    ? `Cambios pendientes → Actualizar a v${boletin.drivePdfInfo.version + 1}`
+                    ? `Cambios pendientes → Actualización inmediata a v${boletin.drivePdfInfo.version + 1}`
                     : `PDF Alojado · Revisión v${boletin.drivePdfInfo.version}`}
                 </span>
               ) : (
-                <span className="px-2.5 py-1 rounded-lg bg-slate-100 text-slate-700 border border-slate-200 text-[11px] font-semibold">
-                  Listo para guardar PDF (v1)
+                <span className="px-2.5 py-1 rounded-lg bg-sky-100 text-sky-900 border border-sky-300 text-[11px] font-bold inline-flex items-center gap-1">
+                  <Clock className="w-3.5 h-3.5 text-sky-700" />
+                  <span>Emisión oficial: Viernes 18:00 h</span>
                 </span>
               )}
+            </div>
+
+            {/* Aviso explicativo de la regla institucional: Viernes 18h primera vez vs Modificaciones inmediatas */}
+            <div className="rounded-xl px-3.5 py-2.5 bg-blue-50/70 border border-blue-200 text-xs text-blue-950 flex items-start gap-2">
+              <Sparkles className="w-4 h-4 text-blue-700 shrink-0 mt-0.5" />
+              <div className="space-y-0.5 leading-relaxed">
+                <span className="font-bold">Protocolo Institucional de Publicación:</span>
+                <p className="text-[11px] text-blue-900">
+                  {boletin.drivePdfInfo
+                    ? 'Este boletín ya cuenta con su primera emisión oficial. Cualquier ajuste o reprogramación se actualizará y sobrescribirá de inmediato en el servidor TrueNAS y Google Drive (Revisión v' +
+                      (boletin.drivePdfInfo.version + 1) +
+                      ').'
+                    : 'La primera emisión oficial y el envío de notificaciones por correo a los docentes se realizan a partir de las 6:00 p. m. (18:00 h) del viernes. Los borradores previos se resguardan de forma segura en TrueNAS.'}
+                </p>
+              </div>
             </div>
 
             {/* Tarjeta limpia de estado automático (lo único que ve el usuario normal) */}

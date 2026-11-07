@@ -895,17 +895,19 @@ export function generarDiasSiguienteSemanaConFestivos(
 }
 
 /**
- * Calcula la fecha de emisión por defecto (Viernes) para la siguiente semana.
+ * Calcula la fecha de publicación (Viernes) en la que se emite el boletín de la siguiente semana.
+ * Por directriz institucional, el boletín nuevo se publica el viernes inmediatamente anterior al lunes de inicio lectivo.
  */
 export function calcularFechaViernesSiguienteSemana(
   diasActuales: DiaProgramacion[],
   anioActivo: number = 2026
 ): string {
   const lunesActual = diasActuales.length > 0 ? parsearDiaYMes(diasActuales[0].fechaTexto) : null;
-  const baseDate = lunesActual
+  const lunesSiguiente = lunesActual
     ? new Date(Date.UTC(anioActivo, lunesActual.mesIndex, lunesActual.dia + 7))
     : new Date(Date.UTC(anioActivo, 10, 9));
-  const viernesDate = new Date(baseDate.getTime() + 4 * 86400000);
+  // El viernes de publicación corresponde al viernes inmediatamente previo al lunes lectivo (-3 días)
+  const viernesDate = new Date(lunesSiguiente.getTime() - 3 * 86400000);
   const dd = String(viernesDate.getUTCDate()).padStart(2, '0');
   const mm = String(viernesDate.getUTCMonth() + 1).padStart(2, '0');
   const yyyy = viernesDate.getUTCFullYear();

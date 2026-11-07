@@ -10,6 +10,7 @@ import {
 } from './boletinLogic';
 import {
   calcularEstadoCalendarioBoletin,
+  calcularFechaViernesSiguienteSemana,
   formatearRangoSemanaSegunMeses,
   generarFestivosColombiaAnio,
   generarPlantillaCalendarioAnual,
@@ -123,10 +124,14 @@ test('calcularEstadoCalendarioBoletin calcula el periodo, ordinal, Semana XX de 
 });
 
 test('clonarBoletinSiguienteSemana incrementa el número, avanza fechas y detecta festivos de 2026 automáticamente', () => {
+  // Para la Edición 40, el viernes de publicación del boletín de la semana 41 es el 06/11/2026
+  const fechaPubCalculada = calcularFechaViernesSiguienteSemana(BOLETIN_40_SEED.dias, 2026);
+  assert.equal(fechaPubCalculada, '06/11/2026');
+
   // Clonar de Edición 40 (2 al 6 nov) -> Edición 41 (9 al 13 nov, sin festivos)
   const boletin41 = clonarBoletinSiguienteSemana(BOLETIN_40_SEED, {
     semanaTexto: '',
-    fechaEmision: '06/11/2026',
+    fechaEmision: fechaPubCalculada,
     autor: 'Elsa Ruby Alarcón Montoya',
     conservarActividades: false,
   });

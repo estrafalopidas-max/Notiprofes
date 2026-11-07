@@ -15,6 +15,7 @@ import {
   PanelLeftOpen,
   Printer,
   Share2,
+  ShieldAlert,
   ShieldCheck,
   UserCheck,
   Users,
@@ -317,6 +318,36 @@ export default function App() {
     []
   );
 
+  const boletinRef = useRef(boletin);
+  useEffect(() => {
+    boletinRef.current = boletin;
+  }, [boletin]);
+
+  const [avisoInactividad, setAvisoInactividad] = useState<string | null>(null);
+
+  const handleCerrarSesion = useCallback(async () => {
+    const tk = tokenRef.current;
+    if (tk) {
+      try {
+        await fetch('/api/auth/logout', {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${tk}` },
+        });
+      } catch {
+        // Ignorar error de red al cerrar sesión
+      }
+    }
+    try {
+      localStorage.removeItem('notiprofes_token');
+      localStorage.removeItem('notiprofes_usuario');
+    } catch {
+      // Ignorar
+    }
+    setTokenSesion(null);
+    setUsuarioDirectivo(null);
+    emitirPresencia('Boletín Oficial', null);
+  }, [emitirPresencia]);
+
   useEffect(() => {
     // Al interactuar con el sistema (mouse, teclado, click, scroll, touch), reactivar estado Activo
     const registrarActividad = () => {
@@ -334,7 +365,11 @@ export default function App() {
     window.addEventListener('scroll', registrarActividad, { passive: true });
     window.addEventListener('touchstart', registrarActividad, { passive: true });
 
-    // Monitor de inactividad: si transcurren más de 40s sin movimiento, marcar como Desatendido
+    // Monitor de inactividad:
+    // 1) 40s sin movimiento: presencia en tiempo real como 'desatendido'
+    // 2) 15 minutos (900.000 ms) sin actividad: auto-logout con resguardo del borrador
+    const TIEMPO_AUTO_LOGOUT_MS = 15 * 60 * 1000;
+
     const timerInactividad = setInterval(() => {
       const msInactivo = Date.now() - ultimoMovimientoRef.current;
       if (msInactivo > 40000 && estadoActividadLocalRef.current === 'editando') {
@@ -342,7 +377,26 @@ export default function App() {
         setEstadoActividadLocal('desatendido');
         emitirPresencia(seccionActivaRef.current, undefined, 'desatendido');
       }
-    }, 3000);
+
+      if (msInactivo >= TIEMPO_AUTO_LOGOUT_MS && tokenRef.current) {
+        try {
+          if (boletinRef.current) {
+            localStorage.setItem(
+              'notiprofes_borrador_seguridad',
+              JSON.stringify(boletinRef.current)
+            );
+          }
+        } catch {
+          // Ignorar fallo de almacenamiento
+        }
+
+        handleCerrarSesion();
+        setVistaActiva('boletin');
+        setAvisoInactividad(
+          'Sesión cerrada automáticamente tras 15 minutos de inactividad para proteger los datos institucionales. Tu borrador fue resguardado de forma segura.'
+        );
+      }
+    }, 5000);
 
     return () => {
       window.removeEventListener('keydown', registrarActividad);
@@ -352,7 +406,7 @@ export default function App() {
       window.removeEventListener('touchstart', registrarActividad);
       clearInterval(timerInactividad);
     };
-  }, [emitirPresencia]);
+  }, [emitirPresencia, handleCerrarSesion]);
 
   const listaConectados = useMemo<PresenciaActiva[]>(() => {
     if (presencia.length > 0) {
@@ -395,28 +449,6 @@ export default function App() {
     setUsuarioDirectivo(usuario);
     setModalLoginAbierto(false);
     emitirPresencia(seccionActivaRef.current, token);
-  };
-
-  const handleCerrarSesion = async () => {
-    if (tokenSesion) {
-      try {
-        await fetch('/api/auth/logout', {
-          method: 'POST',
-          headers: { Authorization: `Bearer ${tokenSesion}` },
-        });
-      } catch {
-        // Ignorar error de red al cerrar sesión
-      }
-    }
-    try {
-      localStorage.removeItem('notiprofes_token');
-      localStorage.removeItem('notiprofes_usuario');
-    } catch {
-      // Ignorar
-    }
-    setTokenSesion(null);
-    setUsuarioDirectivo(null);
-    emitirPresencia('Boletín Oficial', null);
   };
 
   const handleEjecutarOperacion = async (op: OperacionBoletin): Promise<boolean> => {
@@ -1188,6 +1220,54 @@ export default function App() {
         notificacion={notificacionEditor}
         onCerrar={() => setNotificacionEditor(null)}
       />
+
+      {/* AVISO DE CIERRE DE SESIÓN POR INACTIVIDAD (15 MINUTOS) */}
+      {avisoInactividad && (
+        <aside
+          role="alert"
+          aria-live="polite"
+          className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 max-w-lg w-[calc(100%-2rem)] bg-slate-900/95 backdrop-blur-md text-white px-4 py-3.5 rounded-2xl shadow-2xl border border-amber-400/40 flex items-start gap-3 animate-in fade-in slide-in-from-bottom-4 duration-200"
+        >
+          <div className="w-8 h-8 rounded-xl bg-amber-500/20 text-amber-400 flex items-center justify-center shrink-0 mt-0.5">
+            <ShieldAlert className="w-4 h-4" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <div className="text-xs font-bold text-amber-300 uppercase tracking-wider mb-0.5">
+              Seguridad Institucional · Cierre por Inactividad
+            </div>
+            <p className="text-xs text-slate-200 leading-relaxed">
+              {avisoInactividad}
+            </p>
+            <div className="mt-2.5 flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setAvisoInactividad(null);
+                  setModalLoginAbierto(true);
+                }}
+                className="text-xs font-bold px-3 py-1 bg-[#007DC5] hover:bg-[#034EA2] text-white rounded-lg transition-colors cursor-pointer"
+              >
+                Reanudar Sesión
+              </button>
+              <button
+                type="button"
+                onClick={() => setAvisoInactividad(null)}
+                className="text-xs text-slate-400 hover:text-white px-2 py-1 transition-colors cursor-pointer"
+              >
+                Entendido
+              </button>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => setAvisoInactividad(null)}
+            className="text-slate-400 hover:text-white p-1 rounded-lg shrink-0 cursor-pointer"
+            aria-label="Cerrar aviso"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </aside>
+      )}
     </div>
   );
 }

@@ -170,6 +170,69 @@ function sanitizarBoletinParaPublico(boletin: BoletinSemanal): BoletinSemanal {
   };
 }
 
+/**
+ * Evalúa si ya es viernes a partir de las 18:00 (hora legal de Colombia UTC-5)
+ * o si el boletín ya fue emitido previamente para permitir actualizaciones inmediatas.
+ */
+function evaluarHorarioEmisionViernes18h(boletin: BoletinSemanal): {
+  habilitadoParaEnvioMasivo: boolean;
+  esModificacionPosterior: boolean;
+  horaActualColombiaTexto: string;
+  motivoRestriccion?: string;
+} {
+  // Si el boletín ya fue publicado oficialmente al menos una vez (tiene drivePdfInfo o ya estaba publicado),
+  // se trata de una modificación posterior y se habilita de inmediato sin restricción de horario.
+  const yaPublicadoPreviamente =
+    boletin.estado === 'publicado' ||
+    Boolean(boletin.drivePdfInfo?.fileId) ||
+    (boletin.drivePdfInfo?.version || 0) > 0;
+
+  if (yaPublicadoPreviamente) {
+    return {
+      habilitadoParaEnvioMasivo: true,
+      esModificacionPosterior: true,
+      horaActualColombiaTexto: new Date().toLocaleTimeString('es-CO', {
+        timeZone: 'America/Bogota',
+      }),
+    };
+  }
+
+  // Obtener fecha y hora en zona horaria oficial de Medellín / Colombia (America/Bogota)
+  const fechaActualBogota = new Date(
+    new Date().toLocaleString('en-US', { timeZone: 'America/Bogota' })
+  );
+  const diaSemana = fechaActualBogota.getDay(); // 0: domingo, 5: viernes, 6: sábado
+  const hora = fechaActualBogota.getHours();
+
+  // El viernes a partir de las 18:00 horas (6:00 p.m.) hasta el fin de semana está legalmente habilitado
+  // Si es viernes y ya son las 18h o más, o si es sábado/domingo posterior a la emisión
+  const esViernesDespuesDe18h = diaSemana === 5 && hora >= 18;
+  const esFinDeSemanaOSiguiente = diaSemana === 6 || diaSemana === 0;
+
+  const habilitadoParaEnvioMasivo = esViernesDespuesDe18h || esFinDeSemanaOSiguiente;
+
+  const horaActualColombiaTexto = fechaActualBogota.toLocaleTimeString('es-CO', {
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: true,
+  });
+
+  if (!habilitadoParaEnvioMasivo) {
+    return {
+      habilitadoParaEnvioMasivo: false,
+      esModificacionPosterior: false,
+      horaActualColombiaTexto,
+      motivoRestriccion: `La primera emisión oficial y el envío de notificaciones por correo a los docentes están programados institucionalmente para el viernes a partir de las 6:00 p. m. (18:00 h). Hora actual en Colombia: ${horaActualColombiaTexto}. Puede continuar editando y guardando los borradores en el servidor.`,
+    };
+  }
+
+  return {
+    habilitadoParaEnvioMasivo: true,
+    esModificacionPosterior: false,
+    horaActualColombiaTexto,
+  };
+}
+
 // Gestión de sesiones autenticadas en servidor con persistencia protegida
 interface SesionActiva {
   token: string;
@@ -1641,18 +1704,28 @@ async function iniciarServidor() {
         operacion: operacionSegura,
       });
 
-      // Si se publica oficialmente el boletín y el envío automático está activo, despachar correo SMTP en segundo plano
+      // Si se publica oficialmente el boletín y el envío automático está activo, verificar la regla del viernes 18:00h
       if (
         operacionSegura.tipo === 'actualizar_encabezado' &&
         operacionSegura.datos.estado === 'publicado' &&
         preferenciasNotificacion.notificarAutomaticamenteAlPublicar
       ) {
-        enviarNotificacionBoletinSmtp(actualizado, 'publicacion_oficial').catch((err) =>
-          console.error('Error en envío SMTP automático al publicar:', err)
-        );
+        const evaluacionHorario = evaluarHorarioEmisionViernes18h(estadoDb.boletines[idx]);
+        if (evaluacionHorario.habilitadoParaEnvioMasivo) {
+          enviarNotificacionBoletinSmtp(actualizado, 'publicacion_oficial').catch((err) =>
+            console.error('Error en envío SMTP automático al publicar:', err)
+          );
+        } else {
+          console.log(
+            `[SMTP Institucional] Primera emisión oficial retenida hasta el viernes 18:00 h (${evaluacionHorario.horaActualColombiaTexto}). Los borradores se guardaron en TrueNAS.`
+          );
+        }
       }
 
-      res.json({ boletin: actualizado });
+      res.json({
+        boletin: actualizado,
+        evaluacionEmision: evaluarHorarioEmisionViernes18h(actualizado),
+      });
     }
   );
 
@@ -2063,12 +2136,17 @@ async function iniciarServidor() {
         }
       }
 
+      const evaluacionHorario = evaluarHorarioEmisionViernes18h(
+        boletinObjetivo || estadoDb.boletines[0]
+      );
+
       res.json({
         ok: true,
         subidoAGoogleDriveBridge,
         urlPdfServidor,
         rutaCarpetaServidor: `/app/data/pdfs/${nombreCarpetaAnual}/${nombreSeguro}`,
         avisoBridgeDrive,
+        evaluacionEmision: evaluacionHorario,
         metadata: metadataActualizada,
         mensaje: subidoAGoogleDriveBridge
           ? `¡PDF oficial actualizado (Revisión v${versionNueva}) simultáneamente en tu Google Drive («${nombreCarpetaAnual}») y en el servidor TrueNAS!`

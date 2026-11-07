@@ -7,6 +7,7 @@ export interface OpcionDropdown {
   descripcion?: string;
   colorPunto?: string;
   icono?: React.ReactNode;
+  encabezadoGrupo?: string;
 }
 
 interface DropdownBaseProps {
@@ -148,21 +149,30 @@ export const DropdownPersonalizado: React.FC<DropdownPersonalizadoProps> = (prop
             anchoCompleto ? 'w-full' : 'w-max max-w-[320px]'
           } bg-white rounded-2xl border border-slate-200/90 shadow-[0_12px_32px_-4px_rgba(15,23,42,0.14)] p-2 space-y-0.5 animate-in fade-in zoom-in-95 duration-100 max-h-64 overflow-y-auto`}
         >
-          {opciones.map((op) => {
+          {opciones.map((op, idx) => {
             const activo = estaSeleccionado(op.valor);
+            const mostrarEncabezado = Boolean(
+              op.encabezadoGrupo &&
+                (idx === 0 || opciones[idx - 1]?.encabezadoGrupo !== op.encabezadoGrupo)
+            );
             return (
-              <button
-                key={op.valor}
-                type="button"
-                role="option"
-                aria-selected={activo}
-                onClick={() => manejarSeleccion(op.valor)}
-                className={`w-full flex items-center justify-between gap-3 px-3.5 py-2 rounded-xl text-left transition-colors cursor-pointer ${
-                  activo
-                    ? 'bg-sky-50/70 text-[#034EA2] font-bold'
-                    : 'text-slate-700 hover:text-slate-900 hover:bg-slate-50 font-medium'
-                }`}
-              >
+              <React.Fragment key={op.valor}>
+                {mostrarEncabezado && (
+                  <div className="px-3 pt-2 pb-1 text-[10px] font-extrabold uppercase tracking-wider text-slate-400 border-t border-slate-100 first:border-t-0 first:pt-1">
+                    {op.encabezadoGrupo}
+                  </div>
+                )}
+                <button
+                  type="button"
+                  role="option"
+                  aria-selected={activo}
+                  onClick={() => manejarSeleccion(op.valor)}
+                  className={`w-full flex items-center justify-between gap-3 px-3.5 py-2 rounded-xl text-left transition-colors cursor-pointer ${
+                    activo
+                      ? 'bg-sky-50/70 text-[#034EA2] font-bold'
+                      : 'text-slate-700 hover:text-slate-900 hover:bg-slate-50 font-medium'
+                  }`}
+                >
                 <div className="flex items-center gap-2.5 min-w-0 pr-1">
                   {op.colorPunto && (
                     <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${op.colorPunto}`} />
@@ -188,8 +198,9 @@ export const DropdownPersonalizado: React.FC<DropdownPersonalizadoProps> = (prop
                   />
                 )}
               </button>
-            );
-          })}
+            </React.Fragment>
+          );
+        })}
         </div>
       )}
     </div>

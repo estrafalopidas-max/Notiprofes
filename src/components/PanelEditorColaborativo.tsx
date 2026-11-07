@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   AlertTriangle,
   Award,
@@ -45,8 +45,10 @@ import {
   validarActividadInput,
 } from '../utils/boletinLogic';
 import {
+  calcularEstadoCalendarioBoletin,
   calcularFechaViernesSiguienteSemana,
   formatearFechaIsoATextoLargo,
+  generarDiasSiguienteSemanaConFestivos,
   obtenerCalendarioOficialBoletin,
 } from '../utils/calendarioEscolar2026';
 import { DropdownPersonalizado } from './DropdownPersonalizado';
@@ -175,15 +177,39 @@ export const PanelEditorColaborativo: React.FC<PanelEditorColaborativoProps> = (
     null
   );
 
-  const [nuevaSemanaTexto, setNuevaSemanaTexto] = useState(
-    'Semana del 9 de noviembre al 13 de noviembre de 2026.'
-  );
+  const calendarioVigente = obtenerCalendarioOficialBoletin(boletin);
+
+  const [nuevaSemanaTexto, setNuevaSemanaTexto] = useState(() => {
+    const { semanaTextoNuevo } = generarDiasSiguienteSemanaConFestivos(
+      boletin.dias,
+      calendarioVigente
+    );
+    return semanaTextoNuevo;
+  });
   const [nuevaFechaEmision, setNuevaFechaEmision] = useState(() =>
-    calcularFechaViernesSiguienteSemana(boletin.dias)
+    calcularFechaViernesSiguienteSemana(boletin.dias, calendarioVigente.anio)
   );
-  const [nuevaDescPeriodo, setNuevaDescPeriodo] = useState(
-    'Programación de la UNDÉCIMA semana del TERCER periodo del año lectivo.'
-  );
+  const [nuevaDescPeriodo, setNuevaDescPeriodo] = useState(() => {
+    const estado = calcularEstadoCalendarioBoletin(boletin);
+    const semProx = estado.semanaActualPeriodo + 1;
+    return `Programación ${semProx}ª semana del ${estado.numeroPeriodo}º periodo del año lectivo.`;
+  });
+
+  useEffect(() => {
+    const { semanaTextoNuevo } = generarDiasSiguienteSemanaConFestivos(
+      boletin.dias,
+      calendarioVigente
+    );
+    setNuevaSemanaTexto(semanaTextoNuevo);
+    setNuevaFechaEmision(
+      calcularFechaViernesSiguienteSemana(boletin.dias, calendarioVigente.anio)
+    );
+    const estado = calcularEstadoCalendarioBoletin(boletin);
+    const semProx = estado.semanaActualPeriodo + 1;
+    setNuevaDescPeriodo(
+      `Programación ${semProx}ª semana del ${estado.numeroPeriodo}º periodo del año lectivo.`
+    );
+  }, [boletin.id, boletin.numero, boletin.dias, calendarioVigente]);
   const [conservarActividades, setConservarActividades] = useState(false);
   const [modoEventosLPClonar, setModoEventosLPClonar] = useState<
     'futuras' | 'todas' | 'ninguna'
@@ -214,7 +240,6 @@ export const PanelEditorColaborativo: React.FC<PanelEditorColaborativoProps> = (
   const [filtroDiaEditor, setFiltroDiaEditor] = useState<string>('todos');
 
   // Estados para importación de Decreto de Calendario Académico (2027+)
-  const calendarioVigente = obtenerCalendarioOficialBoletin(boletin);
   const [anioDecreto, setAnioDecreto] = useState<number>(2027);
   const [archivoDecretoNombre, setArchivoDecretoNombre] = useState<string>('');
   const [archivoDecretoBase64, setArchivoDecretoBase64] = useState<string>('');
@@ -233,6 +258,21 @@ export const PanelEditorColaborativo: React.FC<PanelEditorColaborativoProps> = (
   };
 
   const cambiarTab = (nueva: SeccionEditor, etiqueta: string) => {
+    if (nueva === 'clonar') {
+      const { semanaTextoNuevo } = generarDiasSiguienteSemanaConFestivos(
+        boletin.dias,
+        calendarioVigente
+      );
+      setNuevaSemanaTexto(semanaTextoNuevo);
+      setNuevaFechaEmision(
+        calcularFechaViernesSiguienteSemana(boletin.dias, calendarioVigente.anio)
+      );
+      const estado = calcularEstadoCalendarioBoletin(boletin);
+      const semProx = estado.semanaActualPeriodo + 1;
+      setNuevaDescPeriodo(
+        `Programación ${semProx}ª semana del ${estado.numeroPeriodo}º periodo del año lectivo.`
+      );
+    }
     setSeccion(nueva);
     setErrorValidacion(null);
     onCambiarSeccionActiva(etiqueta);
@@ -2749,6 +2789,9 @@ export const PanelEditorColaborativo: React.FC<PanelEditorColaborativoProps> = (
                   onChange={(e) => setNuevaFechaEmision(e.target.value)}
                   className="w-full rounded-lg border border-slate-300 bg-slate-50 px-3 py-2 text-sm font-mono-tabular"
                 />
+                <p className="text-[11px] text-slate-500 mt-1 leading-tight">
+                  Viernes en el que se publica oficialmente la nueva edición para los docentes (a partir de las 18:00 h).
+                </p>
               </div>
             </div>
 
