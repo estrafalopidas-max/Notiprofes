@@ -62,6 +62,7 @@ function normalizarListaBoletines(boletines: BoletinSemanal[]): BoletinSemanal[]
 
   for (const b of boletines) {
     if (b.numero === 39) {
+      const diasValidos39 = b.dias?.[0]?.fechaTexto === 'LUNES 26 DE OCTUBRE';
       mapa.set(39, {
         ...BOLETIN_39_SEED,
         ...b,
@@ -69,8 +70,12 @@ function normalizarListaBoletines(boletines: BoletinSemanal[]): BoletinSemanal[]
         fechaEmision: '30/10/2026',
         semanaTexto: 'Semana del 26 de octubre al 30 de octubre de 2026.',
         descripcionPeriodo: 'Programación de la NOVENA semana del TERCER periodo del año lectivo.',
+        dias: diasValidos39 ? b.dias : BOLETIN_39_SEED.dias,
       });
     } else if (b.numero === 40) {
+      const diasValidos40 =
+        b.dias?.[0]?.fechaTexto === 'LUNES 2 DE NOVIEMBRE' &&
+        b.dias?.[0]?.id === 'dia-lunes';
       mapa.set(40, {
         ...BOLETIN_40_SEED,
         ...b,
@@ -78,8 +83,10 @@ function normalizarListaBoletines(boletines: BoletinSemanal[]): BoletinSemanal[]
         fechaEmision: '06/11/2026',
         semanaTexto: 'Semana del 2 de noviembre al 6 de noviembre de 2026.',
         descripcionPeriodo: 'Programación de la DÉCIMA semana del TERCER periodo del año lectivo.',
+        dias: diasValidos40 ? b.dias : BOLETIN_40_SEED.dias,
       });
     } else if (b.numero === 41) {
+      const diasValidos41 = b.dias?.[0]?.fechaTexto === 'LUNES 9 DE NOVIEMBRE';
       mapa.set(41, {
         ...BOLETIN_41_SEED,
         ...b,
@@ -87,6 +94,7 @@ function normalizarListaBoletines(boletines: BoletinSemanal[]): BoletinSemanal[]
         fechaEmision: '13/11/2026',
         semanaTexto: 'Semana del 9 de noviembre al 13 de noviembre de 2026.',
         descripcionPeriodo: 'Programación de la UNDÉCIMA semana del TERCER periodo del año lectivo.',
+        dias: diasValidos41 ? b.dias : BOLETIN_41_SEED.dias,
       });
     } else {
       mapa.set(b.numero, b);
@@ -103,7 +111,9 @@ function cargarBaseDatos(): EstadoAlmacenamiento {
       const parsed = JSON.parse(contenido) as EstadoAlmacenamiento;
       if (parsed && Array.isArray(parsed.boletines) && parsed.boletines.length > 0) {
         const normalizados = normalizarListaBoletines(parsed.boletines);
-        const activoExiste = normalizados.some((b) => b.id === parsed.boletinActivoId);
+        const activoExiste =
+          parsed.boletinActivoId !== BOLETIN_39_SEED.id &&
+          normalizados.some((b) => b.id === parsed.boletinActivoId);
         const estadoFinal: EstadoAlmacenamiento = {
           boletinActivoId: activoExiste ? parsed.boletinActivoId : BOLETIN_40_SEED.id,
           boletines: normalizados,
@@ -421,6 +431,92 @@ function guardarConfiguracionSmtpPersistida(): void {
     );
   } catch (err) {
     console.error('Error al guardar configuración de servidor SMTP:', err);
+  }
+}
+
+// Persistencia de carpetas institucionales de Google Drive por año lectivo (ej. "Villa Flora 2026", "Villa Flora 2027")
+export interface ConfiguracionCarpetaDriveAnual {
+  anio: number;
+  folderInput: string;
+  folderId: string;
+  folderName: string;
+  actualizadoEn?: string;
+  actualizadoPor?: string;
+}
+
+const ARCHIVO_DRIVE_CARPETAS = path.join(
+  DIRECTORIO_DATOS,
+  'notiprofes-drive-carpetas.json'
+);
+
+function extraerIdCarpetaDriveServidor(entrada: string): string {
+  const limpio = (entrada || '').trim();
+  if (!limpio) return '';
+  const matchFolders = limpio.match(/\/folders\/([a-zA-Z0-9_-]{10,})/);
+  if (matchFolders?.[1]) return matchFolders[1];
+  const matchIdParam = limpio.match(/[?&]id=([a-zA-Z0-9_-]{10,})/);
+  if (matchIdParam?.[1]) return matchIdParam[1];
+  // Si parece un ID directo de Google Drive (sin espacios ni barras y al menos 15 caracteres)
+  if (/^[a-zA-Z0-9_-]{15,}$/.test(limpio) && !limpio.includes(' ')) {
+    return limpio;
+  }
+  return '';
+}
+
+function cargarCarpetasDrivePorAnio(): Record<string, ConfiguracionCarpetaDriveAnual> {
+  const basePorDefecto: Record<string, ConfiguracionCarpetaDriveAnual> = {
+    '2026': {
+      anio: 2026,
+      folderInput: 'Villa Flora 2026',
+      folderId: '',
+      folderName: 'Villa Flora 2026',
+    },
+    '2027': {
+      anio: 2027,
+      folderInput: 'Villa Flora 2027',
+      folderId: '',
+      folderName: 'Villa Flora 2027',
+    },
+  };
+
+  try {
+    if (fs.existsSync(ARCHIVO_DRIVE_CARPETAS)) {
+      const raw = JSON.parse(
+        fs.readFileSync(ARCHIVO_DRIVE_CARPETAS, 'utf-8')
+      ) as Record<string, ConfiguracionCarpetaDriveAnual>;
+      if (raw && typeof raw === 'object') {
+        for (const [k, v] of Object.entries(raw)) {
+          const anioNum = Number(v?.anio || k);
+          if (anioNum >= 2020 && anioNum <= 2100) {
+            basePorDefecto[String(anioNum)] = {
+              anio: anioNum,
+              folderInput: String(v.folderInput || v.folderName || `Villa Flora ${anioNum}`).trim(),
+              folderId: String(v.folderId || '').trim(),
+              folderName: String(v.folderName || `Villa Flora ${anioNum}`).trim(),
+              actualizadoEn: v.actualizadoEn,
+              actualizadoPor: v.actualizadoPor,
+            };
+          }
+        }
+      }
+    }
+  } catch (err) {
+    console.error('Error al cargar configuración de carpetas Google Drive:', err);
+  }
+  return basePorDefecto;
+}
+
+const carpetasDrivePorAnio = cargarCarpetasDrivePorAnio();
+
+function guardarCarpetasDrivePorAnio(): void {
+  try {
+    fs.writeFileSync(
+      ARCHIVO_DRIVE_CARPETAS,
+      JSON.stringify(carpetasDrivePorAnio, null, 2),
+      'utf-8'
+    );
+  } catch (err) {
+    console.error('Error al guardar configuración de carpetas Google Drive:', err);
   }
 }
 
@@ -1353,6 +1449,76 @@ async function iniciarServidor() {
         actualizadoEn: smtp.actualizadoEn || null,
         actualizadoPor: smtp.actualizadoPor || null,
         preferencias: preferenciasNotificacion,
+      });
+    }
+  );
+
+  // =========================================================================
+  // ENDPOINTS DE VINCULACIÓN DE CARPETA ANUAL EN GOOGLE DRIVE (2026 / 2027)
+  // =========================================================================
+  app.get(
+    '/api/drive/carpetas',
+    verificarSesionDirectiva,
+    (_req: RequestAutenticado, res) => {
+      res.json({
+        carpetasPorAnio: carpetasDrivePorAnio,
+      });
+    }
+  );
+
+  app.post(
+    '/api/drive/carpetas',
+    verificarSesionDirectiva,
+    (req: RequestAutenticado, res) => {
+      const { anio, folderInput, folderId, folderName } = req.body as {
+        anio?: number | string;
+        folderInput?: string;
+        folderId?: string;
+        folderName?: string;
+      };
+
+      const anioNum = Number(anio) || 2026;
+      if (anioNum < 2020 || anioNum > 2100) {
+        res.status(400).json({
+          error: 'El año lectivo especificado no es válido.',
+        });
+        return;
+      }
+
+      const entradaLimpia = (folderInput ?? '').trim();
+      const idExtraido =
+        (folderId ?? '').trim() || extraerIdCarpetaDriveServidor(entradaLimpia);
+      const nombreLimpio =
+        (folderName ?? '').trim() ||
+        (!idExtraido && entradaLimpia
+          ? entradaLimpia
+          : `Villa Flora ${anioNum}`);
+
+      const ahoraTexto = new Date().toLocaleString('es-CO', {
+        timeZone: 'America/Bogota',
+        dateStyle: 'short',
+        timeStyle: 'short',
+      });
+
+      const configAnual: ConfiguracionCarpetaDriveAnual = {
+        anio: anioNum,
+        folderInput: entradaLimpia || nombreLimpio,
+        folderId: idExtraido,
+        folderName: nombreLimpio,
+        actualizadoEn: ahoraTexto,
+        actualizadoPor: `${req.usuarioDirectivo!.nombre} (${req.usuarioDirectivo!.cargo})`,
+      };
+
+      carpetasDrivePorAnio[String(anioNum)] = configAnual;
+      guardarCarpetasDrivePorAnio();
+
+      res.json({
+        ok: true,
+        mensaje: idExtraido
+          ? `Carpeta de Google Drive vinculada por ID para el año lectivo ${anioNum}.`
+          : `Carpeta anual «${nombreLimpio}» configurada para el año lectivo ${anioNum}.`,
+        configuracion: configAnual,
+        carpetasPorAnio: carpetasDrivePorAnio,
       });
     }
   );

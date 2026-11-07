@@ -2213,49 +2213,122 @@ export function generarHtmlPublicoBoletin(boletin: BoletinSemanal): string {
       }
     });
 
+    function cargarScriptDinamico(url) {
+      return new Promise(function(resolve, reject) {
+        var existente = document.querySelector('script[src="' + url + '"]');
+        if (existente) {
+          resolve();
+          return;
+        }
+        var script = document.createElement('script');
+        script.src = url;
+        script.onload = function() { resolve(); };
+        script.onerror = function(e) { reject(e); };
+        document.head.appendChild(script);
+      });
+    }
+
     function descargarPdfDirectoHtml() {
       var btn = document.getElementById('btn-descargar-pdf-directo');
       var textoPrevio = btn ? btn.innerText : 'Descargar PDF';
-      if (btn) btn.innerText = 'Generando PDF...';
+      if (btn) {
+        btn.innerText = 'Generando PDF...';
+        btn.disabled = true;
+      }
 
-      function descargarConHtml2Pdf() {
+      Promise.all([
+        window.html2canvas
+          ? Promise.resolve()
+          : cargarScriptDinamico('https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js'),
+        (window.jspdf && window.jspdf.jsPDF) || window.jsPDF
+          ? Promise.resolve()
+          : cargarScriptDinamico('https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js')
+      ]).then(function() {
         var element = document.querySelector('.contenedor') || document.body;
-        var widthPx = element.offsetWidth || 840;
-        var heightPx = Math.max(element.scrollHeight, element.offsetHeight, 1200);
-        var widthMm = Math.max(215, Math.ceil(widthPx * 0.264583) + 12);
-        var heightMm = Math.ceil(heightPx * 0.264583) + 20;
+        var acciones = document.querySelector('.acciones-top');
+        var prevScrollX = window.scrollX || window.pageXOffset || 0;
+        var prevScrollY = window.scrollY || window.pageYOffset || 0;
 
-        var opt = {
-          margin:       [6, 6, 6, 6],
-          filename:     '${escaparHtml(nombreArchivoPdf)}',
-          image:        { type: 'jpeg', quality: 0.98 },
-          html2canvas:  { scale: 2, useCORS: true, logging: false, windowWidth: widthPx },
-          jsPDF:        { unit: 'mm', format: [widthMm, heightMm], orientation: 'portrait', compress: true },
-          pagebreak:    { mode: [] }
-        };
-        if (window.html2pdf) {
-          window.html2pdf().set(opt).from(element).save().then(function() {
-            if (btn) btn.innerText = textoPrevio;
-          }).catch(function(err) {
-            console.error(err);
-            if (btn) btn.innerText = textoPrevio;
-            window.print();
+        var prevBodyPadding = document.body.style.padding;
+        var prevWidth = element.style.width;
+        var prevMaxWidth = element.style.maxWidth;
+        var prevMargin = element.style.margin;
+        var prevAccionesDisplay = acciones ? acciones.style.display : '';
+
+        // Fijar el contenedor en la esquina (0,0) con ancho completo de escritorio para evitar recortes laterales o verticales
+        window.scrollTo(0, 0);
+        document.body.style.padding = '0';
+        element.style.width = '1120px';
+        element.style.maxWidth = '1120px';
+        element.style.margin = '0';
+        if (acciones) acciones.style.display = 'none';
+
+        var targetWidth = 1120;
+        var targetHeight = Math.max(element.scrollHeight, element.offsetHeight, 1200);
+
+        return window.html2canvas(element, {
+          scale: 2,
+          useCORS: true,
+          allowTaint: true,
+          backgroundColor: '#ffffff',
+          logging: false,
+          x: 0,
+          y: 0,
+          scrollX: 0,
+          scrollY: 0,
+          width: targetWidth,
+          height: targetHeight,
+          windowWidth: targetWidth,
+          windowHeight: targetHeight + 100
+        }).then(function(canvas) {
+          // Restaurar estilos inmediatamente
+          document.body.style.padding = prevBodyPadding;
+          element.style.width = prevWidth;
+          element.style.maxWidth = prevMaxWidth;
+          element.style.margin = prevMargin;
+          if (acciones) acciones.style.display = prevAccionesDisplay;
+          window.scrollTo(prevScrollX, prevScrollY);
+
+          var imgData = canvas.toDataURL('image/jpeg', 0.96);
+          var marginMm = 6;
+          var contentWidthMm = 216;
+          var pdfWidthMm = contentWidthMm + marginMm * 2;
+          var contentHeightMm = Math.ceil((canvas.height * contentWidthMm) / canvas.width);
+          var pdfHeightMm = contentHeightMm + marginMm * 2;
+
+          var jsPDFClass = (window.jspdf && window.jspdf.jsPDF) || window.jsPDF;
+          var orientacion = pdfWidthMm > pdfHeightMm ? 'landscape' : 'portrait';
+          var pdf = new jsPDFClass({
+            orientation: orientacion,
+            unit: 'mm',
+            format: [pdfWidthMm, pdfHeightMm],
+            compress: true
           });
-        }
-      }
 
-      if (window.html2pdf) {
-        descargarConHtml2Pdf();
-      } else {
-        var script = document.createElement('script');
-        script.src = 'https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js';
-        script.onload = descargarConHtml2Pdf;
-        script.onerror = function() {
-          if (btn) btn.innerText = textoPrevio;
-          window.print();
-        };
-        document.head.appendChild(script);
-      }
+          pdf.addImage(imgData, 'JPEG', marginMm, marginMm, contentWidthMm, contentHeightMm, undefined, 'FAST');
+          pdf.save('${escaparHtml(nombreArchivoPdf)}');
+
+          if (btn) {
+            btn.innerText = textoPrevio;
+            btn.disabled = false;
+          }
+        }).catch(function(err) {
+          document.body.style.padding = prevBodyPadding;
+          element.style.width = prevWidth;
+          element.style.maxWidth = prevMaxWidth;
+          element.style.margin = prevMargin;
+          if (acciones) acciones.style.display = prevAccionesDisplay;
+          window.scrollTo(prevScrollX, prevScrollY);
+          throw err;
+        });
+      }).catch(function(err) {
+        console.error('Error al generar PDF directo:', err);
+        if (btn) {
+          btn.innerText = textoPrevio;
+          btn.disabled = false;
+        }
+        window.print();
+      });
     }
   </script>
 </body>

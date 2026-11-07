@@ -10,6 +10,7 @@ import {
   FileCode,
   FileText,
   FolderCheck,
+  FolderOpen,
   Globe,
   Link2,
   LogOut,
@@ -28,11 +29,23 @@ import { generarHtmlPublicoBoletin } from '../utils/boletinLogic';
 import {
   conectarGoogleDrive,
   desconectarGoogleDrive,
+  extraerIdCarpetaDrive,
   generarPdfBoletinOficial,
   initGoogleDriveAuth,
+  listarCarpetasDriveDisponibles,
+  obtenerAnioBoletin,
   obtenerTokenGoogleDrive,
   sincronizarPdfBoletinEnGoogleDrive,
 } from '../services/googleDrivePdfService';
+
+interface ConfigCarpetaAnualUI {
+  anio: number;
+  folderInput: string;
+  folderId: string;
+  folderName: string;
+  actualizadoEn?: string;
+  actualizadoPor?: string;
+}
 
 interface ModalPublicacionNubeProps {
   abierto: boolean;
@@ -57,6 +70,8 @@ export const ModalPublicacionNube: React.FC<ModalPublicacionNubeProps> = ({
   onGuardarMetadataDrivePdf,
   onSincronizarPublicacion,
 }) => {
+  const anioBoletinActual = useMemo(() => obtenerAnioBoletin(boletin), [boletin]);
+
   const [linkCorto, setLinkCorto] = useState<string>(
     boletin.numero === 40 ? 'https://is.gd/52X1sx' : `https://is.gd/vf26n${boletin.numero}`
   );
@@ -79,6 +94,41 @@ export const ModalPublicacionNube: React.FC<ModalPublicacionNubeProps> = ({
     tipo: 'ok' | 'error';
     texto: string;
   } | null>(null);
+
+  // Estados de vinculación de carpeta institucional por año lectivo (ej. "Villa Flora 2026", "Villa Flora 2027")
+  const [carpetasPorAnio, setCarpetasPorAnio] = useState<
+    Record<string, ConfigCarpetaAnualUI>
+  >({
+    '2026': {
+      anio: 2026,
+      folderInput: 'Villa Flora 2026',
+      folderId: '',
+      folderName: 'Villa Flora 2026',
+    },
+    '2027': {
+      anio: 2027,
+      folderInput: 'Villa Flora 2027',
+      folderId: '',
+      folderName: 'Villa Flora 2027',
+    },
+  });
+  const [anioCarpetaSeleccionado, setAnioCarpetaSeleccionado] = useState<number>(
+    anioBoletinActual
+  );
+  const [entradaCarpetaAnual, setEntradaCarpetaAnual] = useState<string>(
+    `Villa Flora ${anioBoletinActual}`
+  );
+  const [nombreCarpetaAnual, setNombreCarpetaAnual] = useState<string>(
+    `Villa Flora ${anioBoletinActual}`
+  );
+  const [guardandoCarpetaAnual, setGuardandoCarpetaAnual] = useState<boolean>(false);
+  const [explorandoCarpetasDrive, setExplorandoCarpetasDrive] =
+    useState<boolean>(false);
+  const [carpetasDriveEncontradas, setCarpetasDriveEncontradas] = useState<
+    Array<{ id: string; name: string }>
+  >([]);
+  const [mostrarSelectorCarpetasDrive, setMostrarSelectorCarpetasDrive] =
+    useState<boolean>(false);
 
   // Estados de notificaciones automáticas por correo SMTP
   const [smtpConfiguradoServidor, setSmtpConfiguradoServidor] = useState(false);
@@ -149,10 +199,15 @@ export const ModalPublicacionNube: React.FC<ModalPublicacionNubeProps> = ({
   }, []);
 
   useEffect(() => {
+    setAnioCarpetaSeleccionado(anioBoletinActual);
+  }, [anioBoletinActual]);
+
+  useEffect(() => {
     if (!abierto) return;
     let cancelado = false;
     setConfirmandoSobrescrituraDrive(false);
     setMensajeDrivePdf(null);
+    setMostrarSelectorCarpetasDrive(false);
 
     const obtenerLinkCorto = async () => {
       try {
@@ -172,6 +227,39 @@ export const ModalPublicacionNube: React.FC<ModalPublicacionNubeProps> = ({
         }
       } catch {
         // Mantiene el link corto institucional de respaldo
+      }
+    };
+
+    const cargarCarpetasDriveConfiguradas = async () => {
+      if (!tokenSesion) return;
+      try {
+        const resp = await fetch('/api/drive/carpetas', {
+          headers: {
+            Authorization: `Bearer ${tokenSesion}`,
+          },
+        });
+        if (resp.ok && !cancelado) {
+          const data = (await resp.json()) as {
+            carpetasPorAnio?: Record<string, ConfigCarpetaAnualUI>;
+          };
+          if (data.carpetasPorAnio) {
+            setCarpetasPorAnio(data.carpetasPorAnio);
+            const confActual = data.carpetasPorAnio[String(anioBoletinActual)];
+            if (confActual) {
+              setEntradaCarpetaAnual(
+                confActual.folderInput ||
+                  confActual.folderId ||
+                  confActual.folderName ||
+                  `Villa Flora ${anioBoletinActual}`
+              );
+              setNombreCarpetaAnual(
+                confActual.folderName || `Villa Flora ${anioBoletinActual}`
+              );
+            }
+          }
+        }
+      } catch {
+        // Silencioso si no hay sesión directiva
       }
     };
 
@@ -207,11 +295,27 @@ export const ModalPublicacionNube: React.FC<ModalPublicacionNubeProps> = ({
     };
 
     obtenerLinkCorto();
+    cargarCarpetasDriveConfiguradas();
     cargarEstadoSmtp();
     return () => {
       cancelado = true;
     };
-  }, [abierto, urlPublicSchedule, boletin.numero, tokenSesion]);
+  }, [abierto, urlPublicSchedule, boletin.numero, tokenSesion, anioBoletinActual]);
+
+  // Sincronizar los campos del formulario cuando el directivo cambia el año en el selector (ej. 2026 ↔ 2027)
+  const handleCambiarAnioCarpeta = (nuevoAnio: number) => {
+    setAnioCarpetaSeleccionado(nuevoAnio);
+    const conf = carpetasPorAnio[String(nuevoAnio)];
+    if (conf) {
+      setEntradaCarpetaAnual(
+        conf.folderInput || conf.folderId || conf.folderName || `Villa Flora ${nuevoAnio}`
+      );
+      setNombreCarpetaAnual(conf.folderName || `Villa Flora ${nuevoAnio}`);
+    } else {
+      setEntradaCarpetaAnual(`Villa Flora ${nuevoAnio}`);
+      setNombreCarpetaAnual(`Villa Flora ${nuevoAnio}`);
+    }
+  };
 
   useEffect(() => {
     if (!boletin.ultimaActualizacion) return;
@@ -321,6 +425,130 @@ export const ModalPublicacionNube: React.FC<ModalPublicacionNubeProps> = ({
     setNeedsDriveAuth(true);
     setCuentaGoogleCorreo(null);
     setConfirmandoSobrescrituraDrive(false);
+    setMostrarSelectorCarpetasDrive(false);
+  };
+
+  const handleGuardarCarpetaAnual = async (
+    anioGuardar: number = anioCarpetaSeleccionado,
+    inputPersonalizado?: string,
+    idPersonalizado?: string,
+    nombrePersonalizado?: string
+  ) => {
+    if (!tokenSesion) {
+      if (onSolicitarLogin) {
+        onSolicitarLogin();
+      } else {
+        setMensajeDrivePdf({
+          tipo: 'error',
+          texto: 'Inicie sesión con su cuenta directiva para guardar la carpeta anual.',
+        });
+      }
+      return;
+    }
+
+    setGuardandoCarpetaAnual(true);
+    setMensajeDrivePdf(null);
+
+    const valorEntrada = (inputPersonalizado ?? entradaCarpetaAnual).trim();
+    const idDetectado =
+      (idPersonalizado ?? extraerIdCarpetaDrive(valorEntrada)).trim();
+    const valorNombre =
+      (nombrePersonalizado ?? nombreCarpetaAnual).trim() ||
+      (!idDetectado && valorEntrada ? valorEntrada : `Villa Flora ${anioGuardar}`);
+
+    try {
+      const resp = await fetch('/api/drive/carpetas', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${tokenSesion}`,
+        },
+        body: JSON.stringify({
+          anio: anioGuardar,
+          folderInput: valorEntrada || valorNombre,
+          folderId: idDetectado,
+          folderName: valorNombre,
+        }),
+      });
+      const data = await resp.json();
+      if (resp.ok && data.carpetasPorAnio) {
+        setCarpetasPorAnio(data.carpetasPorAnio);
+        const confGuardada = data.carpetasPorAnio[String(anioGuardar)];
+        if (confGuardada && anioGuardar === anioCarpetaSeleccionado) {
+          setEntradaCarpetaAnual(confGuardada.folderInput);
+          setNombreCarpetaAnual(confGuardada.folderName);
+        }
+        setMensajeDrivePdf({
+          tipo: 'ok',
+          texto:
+            data.mensaje ||
+            `Carpeta anual «${valorNombre}» guardada para los boletines del año ${anioGuardar}.`,
+        });
+      } else {
+        setMensajeDrivePdf({
+          tipo: 'error',
+          texto: data.error || 'No se pudo guardar la configuración de carpeta anual.',
+        });
+      }
+    } catch {
+      setMensajeDrivePdf({
+        tipo: 'error',
+        texto: 'Error de red al guardar la carpeta anual en el servidor.',
+      });
+    } finally {
+      setGuardandoCarpetaAnual(false);
+    }
+  };
+
+  const handleExplorarCarpetasDrive = async () => {
+    if (needsDriveAuth || !obtenerTokenGoogleDrive()) {
+      setMensajeDrivePdf({
+        tipo: 'error',
+        texto: 'Primero conecta tu cuenta de Google Drive para listar tus carpetas disponibles.',
+      });
+      return;
+    }
+    setExplorandoCarpetasDrive(true);
+    setMensajeDrivePdf(null);
+    try {
+      const lista = await listarCarpetasDriveDisponibles();
+      setCarpetasDriveEncontradas(lista);
+      setMostrarSelectorCarpetasDrive(true);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : '';
+      if (msg === 'SESION_DRIVE_EXPIRADA' || msg === 'SESION_DRIVE_REQUERIDA') {
+        setNeedsDriveAuth(true);
+      }
+      setMensajeDrivePdf({
+        tipo: 'error',
+        texto: 'No fue posible consultar las carpetas de Google Drive. Verifica tu sesión.',
+      });
+    } finally {
+      setExplorandoCarpetasDrive(false);
+    }
+  };
+
+  const obtenerOpcionesCarpetaBoletinActual = () => {
+    const confAnioBoletin = carpetasPorAnio[String(anioBoletinActual)];
+    // Si el usuario está editando precisamente el año del boletín actual, usar los valores en pantalla
+    if (anioCarpetaSeleccionado === anioBoletinActual) {
+      const idEnPantalla = extraerIdCarpetaDrive(entradaCarpetaAnual);
+      const nombreEnPantalla =
+        nombreCarpetaAnual.trim() ||
+        (!idEnPantalla && entradaCarpetaAnual.trim()
+          ? entradaCarpetaAnual.trim()
+          : `Villa Flora ${anioBoletinActual}`);
+      return {
+        anio: anioBoletinActual,
+        folderId: idEnPantalla || confAnioBoletin?.folderId || '',
+        folderName: nombreEnPantalla,
+      };
+    }
+    return {
+      anio: anioBoletinActual,
+      folderId: confAnioBoletin?.folderId || '',
+      folderName: confAnioBoletin?.folderName || `Villa Flora ${anioBoletinActual}`,
+    };
   };
 
   const ejecutarSincronizacionPdfDrive = async () => {
@@ -343,10 +571,40 @@ export const ModalPublicacionNube: React.FC<ModalPublicacionNubeProps> = ({
     try {
       const autorNombre =
         usuarioActual?.nombre || boletin.actualizadoPor || 'Dirección Institucional';
+      const opcionesCarpeta = obtenerOpcionesCarpetaBoletinActual();
       const metadata = await sincronizarPdfBoletinEnGoogleDrive(
         boletin,
-        autorNombre
+        autorNombre,
+        opcionesCarpeta
       );
+
+      // Persistir también el folderId y folderName resueltos para este año lectivo en el servidor
+      try {
+        const respCarpeta = await fetch('/api/drive/carpetas', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${tokenSesion}`,
+          },
+          body: JSON.stringify({
+            anio: anioBoletinActual,
+            folderInput:
+              anioCarpetaSeleccionado === anioBoletinActual
+                ? entradaCarpetaAnual.trim() || metadata.folderName
+                : metadata.folderName,
+            folderId: metadata.folderId,
+            folderName: metadata.folderName,
+          }),
+        });
+        if (respCarpeta.ok) {
+          const dataCarpeta = await respCarpeta.json();
+          if (dataCarpeta.carpetasPorAnio) {
+            setCarpetasPorAnio(dataCarpeta.carpetasPorAnio);
+          }
+        }
+      } catch {
+        // Continúa aunque falle el guardado secundario de carpeta
+      }
 
       if (onGuardarMetadataDrivePdf) {
         await onGuardarMetadataDrivePdf(metadata);
@@ -356,8 +614,8 @@ export const ModalPublicacionNube: React.FC<ModalPublicacionNubeProps> = ({
         tipo: 'ok',
         texto:
           metadata.version > 1
-            ? `¡PDF sobrescrito con éxito sobre el mismo ID de Google Drive (Revisión v${metadata.version})! El enlace único se mantiene intacto.`
-            : `¡PDF oficial «${metadata.fileName}» creado en la carpeta «${metadata.folderName}» de Google Drive (v1)!`,
+            ? `¡PDF sobrescrito con éxito sobre el mismo ID de Google Drive (Revisión v${metadata.version}) en la carpeta «${metadata.folderName}»!`
+            : `¡PDF oficial «${metadata.fileName}» guardado en la carpeta anual «${metadata.folderName}» de Google Drive (v1)!`,
       });
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : '';
@@ -543,6 +801,10 @@ export const ModalPublicacionNube: React.FC<ModalPublicacionNubeProps> = ({
     }
   };
 
+  const carpetaActivaBoletin =
+    carpetasPorAnio[String(anioBoletinActual)]?.folderName ||
+    `Villa Flora ${anioBoletinActual}`;
+
   return (
     <div
       role="dialog"
@@ -612,7 +874,7 @@ export const ModalPublicacionNube: React.FC<ModalPublicacionNubeProps> = ({
                   </span>
                 </div>
                 <p className="text-[11px] text-slate-600">
-                  Genera <code className="font-mono-tabular font-bold">NotiProfes_N{boletin.numero}_VillaFlora.pdf</code> y actualiza siempre el mismo archivo en Google Drive sin romper el enlace compartido.
+                  Genera <code className="font-mono-tabular font-bold">NotiProfes_N{boletin.numero}_VillaFlora.pdf</code> dentro de la carpeta anual <strong>«{carpetaActivaBoletin}»</strong> y actualiza siempre el mismo archivo sin romper el enlace compartido.
                 </p>
               </div>
 
@@ -695,6 +957,175 @@ export const ModalPublicacionNube: React.FC<ModalPublicacionNubeProps> = ({
               )}
             </div>
 
+            {/* OPCIÓN 2: VINCULACIÓN DE CARPETA ESPECÍFICA POR AÑO LECTIVO (EJ. VILLA FLORA 2026 / VILLA FLORA 2027) */}
+            <div className="bg-white border border-emerald-200/90 rounded-xl p-3.5 space-y-2.5">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex items-center gap-1.5 text-xs font-bold text-slate-800">
+                  <FolderOpen className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                  <span>
+                    Carpeta Institucional de Google Drive por Año Lectivo
+                  </span>
+                </div>
+
+                {/* Selector de Año Lectivo (2026 / 2027) */}
+                <div className="inline-flex items-center gap-1 bg-slate-100 p-0.5 rounded-lg border border-slate-200">
+                  {[2026, 2027].map((anioItem) => {
+                    const activo = anioCarpetaSeleccionado === anioItem;
+                    return (
+                      <button
+                        key={anioItem}
+                        type="button"
+                        onClick={() => handleCambiarAnioCarpeta(anioItem)}
+                        className={`px-2.5 py-1 rounded-md text-[11px] font-bold transition-colors cursor-pointer ${
+                          activo
+                            ? 'bg-emerald-600 text-white shadow-2xs'
+                            : 'text-slate-600 hover:text-slate-900'
+                        }`}
+                      >
+                        Año {anioItem}
+                        {anioItem === anioBoletinActual ? ' (Actual)' : ''}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <p className="text-[11px] text-slate-600 leading-relaxed">
+                Pega el <strong>enlace o ID de la carpeta de Google Drive</strong> o escribe el nombre exacto de la carpeta anual (ej. <code>Villa Flora {anioCarpetaSeleccionado}</code>) para evitar confusiones al cambiar de año escolar:
+              </p>
+
+              <div className="grid grid-cols-1 sm:grid-cols-12 gap-2">
+                <div className="sm:col-span-5">
+                  <label
+                    htmlFor="drive-nombre-carpeta-anual"
+                    className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1"
+                  >
+                    Nombre de carpeta ({anioCarpetaSeleccionado})
+                  </label>
+                  <input
+                    id="drive-nombre-carpeta-anual"
+                    type="text"
+                    value={nombreCarpetaAnual}
+                    onChange={(e) => setNombreCarpetaAnual(e.target.value)}
+                    placeholder={`Villa Flora ${anioCarpetaSeleccionado}`}
+                    className="w-full rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-800 focus:outline-none focus:border-emerald-600"
+                  />
+                </div>
+
+                <div className="sm:col-span-7">
+                  <label
+                    htmlFor="drive-link-id-carpeta-anual"
+                    className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1"
+                  >
+                    Enlace de Google Drive o ID de Carpeta (Opcional)
+                  </label>
+                  <input
+                    id="drive-link-id-carpeta-anual"
+                    type="text"
+                    value={entradaCarpetaAnual}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setEntradaCarpetaAnual(val);
+                      if (!extraerIdCarpetaDrive(val) && val.trim().length > 0) {
+                        setNombreCarpetaAnual(val.trim());
+                      }
+                    }}
+                    placeholder={`https://drive.google.com/drive/folders/... o Villa Flora ${anioCarpetaSeleccionado}`}
+                    className="w-full rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs text-slate-800 font-mono-tabular focus:outline-none focus:border-emerald-600"
+                  />
+                </div>
+              </div>
+
+              <div className="flex flex-wrap items-center justify-between gap-2 pt-0.5">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <button
+                    type="button"
+                    disabled={explorandoCarpetasDrive}
+                    onClick={handleExplorarCarpetasDrive}
+                    className="px-2.5 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 text-[11px] font-semibold inline-flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                  >
+                    <FolderOpen className="w-3.5 h-3.5 text-emerald-700" />
+                    <span>
+                      {explorandoCarpetasDrive
+                        ? 'Buscando carpetas...'
+                        : 'Elegir carpeta de mi Drive'}
+                    </span>
+                  </button>
+
+                  {carpetasPorAnio[String(anioCarpetaSeleccionado)]?.folderId && (
+                    <span className="text-[10px] font-mono-tabular px-2 py-0.5 rounded bg-emerald-50 text-emerald-800 border border-emerald-200">
+                      ID vinculado: {carpetasPorAnio[String(anioCarpetaSeleccionado)].folderId}
+                    </span>
+                  )}
+                </div>
+
+                <button
+                  type="button"
+                  disabled={guardandoCarpetaAnual}
+                  onClick={() => handleGuardarCarpetaAnual(anioCarpetaSeleccionado)}
+                  className="px-3 py-1.5 rounded-lg bg-emerald-700 hover:bg-emerald-800 text-white text-[11px] font-bold inline-flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                >
+                  <Check className="w-3.5 h-3.5" />
+                  <span>
+                    {guardandoCarpetaAnual
+                      ? 'Guardando...'
+                      : `Vincular carpeta ${anioCarpetaSeleccionado}`}
+                  </span>
+                </button>
+              </div>
+
+              {/* Lista desplegable de carpetas encontradas en el Google Drive del directivo */}
+              {mostrarSelectorCarpetasDrive && (
+                <div className="mt-2 p-2.5 rounded-lg bg-slate-50 border border-slate-200 space-y-2">
+                  <div className="flex items-center justify-between text-[11px] font-bold text-slate-700">
+                    <span>
+                      Selecciona una carpeta de tu Google Drive para el año {anioCarpetaSeleccionado}:
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setMostrarSelectorCarpetasDrive(false)}
+                      className="text-slate-500 hover:text-slate-800 text-[11px] cursor-pointer"
+                    >
+                      Cerrar lista
+                    </button>
+                  </div>
+                  {carpetasDriveEncontradas.length === 0 ? (
+                    <p className="text-[11px] text-slate-500">
+                      No se encontraron carpetas previas creadas por la aplicación. Al publicar el boletín se creará automáticamente <strong>«{nombreCarpetaAnual || `Villa Flora ${anioCarpetaSeleccionado}`}»</strong>.
+                    </p>
+                  ) : (
+                    <div className="max-h-32 overflow-y-auto space-y-1">
+                      {carpetasDriveEncontradas.map((folder) => (
+                        <button
+                          key={folder.id}
+                          type="button"
+                          onClick={() => {
+                            setNombreCarpetaAnual(folder.name);
+                            setEntradaCarpetaAnual(folder.id);
+                            setMostrarSelectorCarpetasDrive(false);
+                            handleGuardarCarpetaAnual(
+                              anioCarpetaSeleccionado,
+                              folder.id,
+                              folder.id,
+                              folder.name
+                            );
+                          }}
+                          className="w-full text-left px-2.5 py-1.5 rounded-md bg-white hover:bg-emerald-50 border border-slate-200/80 flex items-center justify-between gap-2 text-xs transition-colors cursor-pointer"
+                        >
+                          <span className="font-semibold text-slate-800 truncate">
+                            {folder.name}
+                          </span>
+                          <span className="text-[10px] font-mono-tabular text-slate-500 shrink-0">
+                            ID: {folder.id.slice(0, 10)}...
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
             {/* Metadatos del archivo único en Drive si ya fue creado */}
             {boletin.drivePdfInfo && (
               <div className="bg-white border border-emerald-200 rounded-xl p-3 space-y-2">
@@ -736,7 +1167,7 @@ export const ModalPublicacionNube: React.FC<ModalPublicacionNubeProps> = ({
                   </div>
                 </div>
                 <div className="text-[11px] text-slate-500">
-                  Carpeta: <strong>{boletin.drivePdfInfo.folderName || 'NotiProfes Oficial - I.E. Villa Flora'}</strong> · Última versión subida por {boletin.drivePdfInfo.sincronizadoPor}
+                  Carpeta vinculada: <strong>{boletin.drivePdfInfo.folderName || carpetaActivaBoletin}</strong> · Última versión subida por {boletin.drivePdfInfo.sincronizadoPor}
                 </div>
               </div>
             )}
@@ -755,7 +1186,7 @@ export const ModalPublicacionNube: React.FC<ModalPublicacionNubeProps> = ({
                       ¿Confirmas actualizar el archivo existente «{boletin.drivePdfInfo.fileName}» en Google Drive?
                     </p>
                     <p className="text-[11px] text-amber-900 leading-relaxed">
-                      Se sobrescribirá el contenido sobre el mismo ID de Google Drive (<code>{boletin.drivePdfInfo.fileId}</code>) generando la <strong>Revisión v{boletin.drivePdfInfo.version + 1}</strong> y manteniendo intacto el enlace compartido con los docentes.
+                      Se sobrescribirá el contenido sobre el mismo ID de Google Drive (<code>{boletin.drivePdfInfo.fileId}</code>) dentro de la carpeta anual <strong>«{carpetaActivaBoletin}»</strong> generando la <strong>Revisión v{boletin.drivePdfInfo.version + 1}</strong> y manteniendo intacto el enlace compartido con los docentes.
                     </p>
                   </div>
                 </div>
@@ -819,8 +1250,8 @@ export const ModalPublicacionNube: React.FC<ModalPublicacionNubeProps> = ({
                   {subiendoDrivePdf
                     ? 'Sincronizando PDF con Google Drive...'
                     : boletin.drivePdfInfo
-                      ? `Actualizar PDF en el Mismo ID de Drive (v${boletin.drivePdfInfo.version + 1})`
-                      : 'Subir PDF Oficial a Google Drive (v1)'}
+                      ? `Actualizar PDF en Drive · ${carpetaActivaBoletin} (v${boletin.drivePdfInfo.version + 1})`
+                      : `Subir PDF Oficial a «${carpetaActivaBoletin}» (v1)`}
                 </span>
               </button>
             </div>

@@ -2049,7 +2049,7 @@ export const PanelEditorColaborativo: React.FC<PanelEditorColaborativoProps> = (
                   type="text"
                   value={docenteFel}
                   onChange={(e) => setDocenteFel(e.target.value)}
-                  placeholder="Ej: Profesora Sara Bonilla Casafus"
+                  placeholder="Ej: Nombre del docente o equipo pedagógico"
                   className="w-full rounded-lg border border-slate-300 bg-slate-50 px-3 py-2 text-sm"
                 />
               </div>
@@ -2491,7 +2491,7 @@ export const PanelEditorColaborativo: React.FC<PanelEditorColaborativoProps> = (
 
       {/* SECCIÓN REGISTRO HISTÓRICO DE CAMBIOS */}
       {seccion === 'historial' && (
-        <div className="bg-white border border-slate-200/90 rounded-2xl p-6 sm:p-8 space-y-6 shadow-xs">
+        <div className="bg-white border border-slate-200/90 rounded-2xl p-4 sm:p-7 space-y-5 shadow-xs">
           <div className="border-b border-slate-100 pb-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div>
               <h2 className="text-lg font-display font-bold text-slate-900 flex items-center gap-2">
@@ -2502,7 +2502,7 @@ export const PanelEditorColaborativo: React.FC<PanelEditorColaborativoProps> = (
                 Auditoría en tiempo real de cada modificación, usuario responsable, sección afectada y marca de tiempo.
               </p>
             </div>
-            <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-sky-50 text-[#034EA2] text-xs font-semibold">
+            <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-sky-50 text-[#034EA2] text-xs font-semibold self-start sm:self-auto shrink-0">
               <span>Total registros: {boletin.historialCambios?.length || 0}</span>
             </div>
           </div>
@@ -2512,39 +2512,69 @@ export const PanelEditorColaborativo: React.FC<PanelEditorColaborativoProps> = (
               No hay registros de cambios en el historial de esta edición todavía.
             </div>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full border-collapse text-xs">
+            <div className="overflow-x-auto -mx-2 px-2 sm:mx-0 sm:px-0">
+              <table className="w-full min-w-[640px] border-collapse text-xs table-auto">
                 <thead>
                   <tr className="bg-slate-50 border-b border-slate-200 text-slate-700">
-                    <th className="p-3 text-left font-bold">Marca de Tiempo</th>
-                    <th className="p-3 text-left font-bold">Usuario / Cargo</th>
-                    <th className="p-3 text-left font-bold">Sección</th>
-                    <th className="p-3 text-left font-bold">Acción</th>
-                    <th className="p-3 text-left font-bold">Descripción del Cambio</th>
+                    <th className="py-2.5 px-2.5 text-left font-bold w-[108px] whitespace-nowrap">
+                      Marca de Tiempo
+                    </th>
+                    <th className="py-2.5 px-2.5 text-left font-bold w-[135px] max-w-[145px]">
+                      Usuario / Cargo
+                    </th>
+                    <th className="py-2.5 px-2.5 text-left font-bold w-[125px]">
+                      Sección
+                    </th>
+                    <th className="py-2.5 px-2.5 text-left font-bold w-[115px]">
+                      Acción
+                    </th>
+                    <th className="py-2.5 px-3 text-left font-bold min-w-[240px] sm:min-w-[300px]">
+                      Descripción del Cambio
+                    </th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {boletin.historialCambios.map((h) => (
-                    <tr key={h.id} className="hover:bg-slate-50/70 transition-colors">
-                      <td className="p-3 font-mono-tabular font-semibold text-slate-600 whitespace-nowrap">
-                        {h.timestamp}
-                      </td>
-                      <td className="p-3 font-semibold text-[#0F172A] whitespace-nowrap">
-                        {h.usuario}
-                      </td>
-                      <td className="p-3 text-[#007DC5] font-semibold whitespace-nowrap">
-                        {h.seccion}
-                      </td>
-                      <td className="p-3">
-                        <span className="inline-block px-2.5 py-0.5 rounded-md text-[11px] font-bold bg-sky-50 text-[#034EA2] border border-sky-200">
-                          {h.accion}
-                        </span>
-                      </td>
-                      <td className="p-3 text-slate-700 font-medium leading-relaxed">
-                        {h.descripcion}
-                      </td>
-                    </tr>
-                  ))}
+                  {boletin.historialCambios.map((h) => {
+                    const matchUsuario = (h.usuario || '').match(/^(.+?)\s*\((.+)\)$/);
+                    const nombreCompacto = matchUsuario
+                      ? matchUsuario[1].trim()
+                      : h.usuario;
+                    const cargoCompacto = matchUsuario
+                      ? matchUsuario[2].trim()
+                      : '';
+
+                    return (
+                      <tr key={h.id} className="hover:bg-slate-50/70 transition-colors align-top">
+                        <td className="py-2.5 px-2.5 font-mono-tabular font-semibold text-slate-600 text-[11px] leading-snug whitespace-nowrap">
+                          {h.timestamp}
+                        </td>
+                        <td
+                          className="py-2.5 px-2.5 w-[135px] max-w-[145px]"
+                          title={h.usuario}
+                        >
+                          <div className="font-semibold text-[#0F172A] text-[11px] leading-tight truncate">
+                            {nombreCompacto}
+                          </div>
+                          {cargoCompacto && (
+                            <div className="text-[10px] text-slate-500 font-medium leading-tight truncate mt-0.5">
+                              {cargoCompacto}
+                            </div>
+                          )}
+                        </td>
+                        <td className="py-2.5 px-2.5 text-[#007DC5] font-semibold text-[11px] leading-snug max-w-[130px] break-words">
+                          {h.seccion}
+                        </td>
+                        <td className="py-2.5 px-2.5 whitespace-nowrap">
+                          <span className="inline-block px-2 py-0.5 rounded-md text-[10px] font-bold bg-sky-50 text-[#034EA2] border border-sky-200 leading-tight">
+                            {h.accion}
+                          </span>
+                        </td>
+                        <td className="py-2.5 px-3 text-slate-700 font-medium leading-relaxed min-w-[240px] sm:min-w-[300px] whitespace-normal break-words">
+                          {h.descripcion}
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
