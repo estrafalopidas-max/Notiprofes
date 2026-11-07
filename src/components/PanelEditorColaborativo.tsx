@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import {
   AlertTriangle,
+  Award,
   Bell,
   Calendar,
   CalendarDays,
@@ -81,15 +82,21 @@ export type SeccionEditor =
   | 'clonar';
 
 function obtenerIconoSeccion(seccion: string) {
-  const norm = seccion ? seccion.toLowerCase() : '';
-  if (norm.includes('semanal') || norm.includes('programación') || norm.includes('actividades')) {
+  const norm = seccion
+    ? seccion
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+    : '';
+
+  if (norm.includes('semanal') || norm.includes('programacion') || norm.includes('actividades')) {
     return <Calendar className="w-3.5 h-3.5 shrink-0" />;
   }
-  if (norm.includes('documento') || norm.includes('enlace') || norm.includes('resolución') || norm.includes('horarios de la semana')) {
+  if (norm.includes('documento') || norm.includes('enlace') || norm.includes('resolucion') || norm.includes('horarios de la semana')) {
     return <FileText className="w-3.5 h-3.5 shrink-0" />;
   }
-  if (norm.includes('practica') || norm.includes('reconocimiento') || norm.includes('felicitaciones')) {
-    return <ShieldCheck className="w-3.5 h-3.5 shrink-0" />;
+  if (norm.includes('practica') || norm.includes('notipractica') || norm.includes('reconocimiento') || norm.includes('felicitaciones')) {
+    return <Award className="w-3.5 h-3.5 shrink-0 text-amber-500" />;
   }
   if (norm.includes('largo') || norm.includes('calendario') || norm.includes('decreto')) {
     return <CalendarDays className="w-3.5 h-3.5 shrink-0" />;
@@ -100,7 +107,7 @@ function obtenerIconoSeccion(seccion: string) {
   if (norm.includes('historial') || norm.includes('cambio')) {
     return <History className="w-3.5 h-3.5 shrink-0" />;
   }
-  if (norm.includes('nueva') || norm.includes('clonar') || norm.includes('semana')) {
+  if (norm.includes('nueva') || norm.includes('clonar')) {
     return <CopyPlus className="w-3.5 h-3.5 shrink-0" />;
   }
   return <LayoutGrid className="w-3.5 h-3.5 shrink-0" />;

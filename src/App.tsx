@@ -19,9 +19,11 @@ import {
   UserCheck,
   Users,
   Download,
+  Award,
+  Sparkles,
   X,
 } from 'lucide-react';
-import { BOLETIN_39_SEED, BOLETIN_40_SEED } from './data/seedNotiprofes40';
+import { BOLETIN_39_SEED, BOLETIN_40_SEED, BOLETIN_41_SEED } from './data/seedNotiprofes40';
 import {
   BoletinSemanal,
   OperacionBoletin,
@@ -65,7 +67,7 @@ export default function App() {
   const [vistaActiva, setVistaActiva] = useState<VistaPrincipal>('boletin');
   const [seccionEditorInicial, setSeccionEditorInicial] =
     useState<SeccionEditor>('semanal');
-  const [boletin, setBoletin] = useState<BoletinSemanal>(BOLETIN_39_SEED);
+  const [boletin, setBoletin] = useState<BoletinSemanal>(BOLETIN_40_SEED);
   const [listaBoletines, setListaBoletines] = useState<ResumenBoletin[]>([
     {
       id: BOLETIN_39_SEED.id,
@@ -78,6 +80,12 @@ export default function App() {
       numero: BOLETIN_40_SEED.numero,
       fechaEmision: BOLETIN_40_SEED.fechaEmision,
       semanaTexto: BOLETIN_40_SEED.semanaTexto,
+    },
+    {
+      id: BOLETIN_41_SEED.id,
+      numero: BOLETIN_41_SEED.numero,
+      fechaEmision: BOLETIN_41_SEED.fechaEmision,
+      semanaTexto: BOLETIN_41_SEED.semanaTexto,
     },
   ]);
 
@@ -171,6 +179,16 @@ export default function App() {
   }, []);
 
   const cargarBoletinesServidor = useCallback(async (idEspecifico?: string) => {
+    if (idEspecifico) {
+      if (idEspecifico === BOLETIN_39_SEED.id) {
+        setBoletin(BOLETIN_39_SEED);
+      } else if (idEspecifico === BOLETIN_40_SEED.id) {
+        setBoletin(BOLETIN_40_SEED);
+      } else if (idEspecifico === BOLETIN_41_SEED.id) {
+        setBoletin(BOLETIN_41_SEED);
+      }
+    }
+
     try {
       const [respLista, respBoletin] = await Promise.all([
         fetch('/api/public/boletines'),
@@ -592,21 +610,6 @@ export default function App() {
 
           {/* Botones de acción en una sola fila protegida contra wrap (no se bajan nunca) */}
           <div className="flex items-center justify-end gap-1.5 sm:gap-2 flex-nowrap shrink-0 overflow-x-auto max-w-full">
-            {listaBoletines.length > 1 && (
-              <DropdownPersonalizado
-                modo="simple"
-                ariaLabel="Cambiar edición de boletín"
-                icono={<FileText className="w-4 h-4" />}
-                etiquetaBoton={`N° ${boletin.numero}`}
-                valorSeleccionado={boletin.id}
-                onChange={(id) => cargarBoletinesServidor(id)}
-                opciones={listaBoletines.map((item) => ({
-                  valor: item.id,
-                  etiqueta: `N° ${item.numero} (${item.fechaEmision})`,
-                }))}
-              />
-            )}
-
             <button
               type="button"
               onClick={() => descargarPdfBoletinDirecto(boletin)}
@@ -834,7 +837,7 @@ export default function App() {
                     : 'text-slate-700 hover:bg-slate-100 hover:text-[#034EA2]'
                 }`}
               >
-                <ShieldCheck className="w-4 h-4 shrink-0" />
+                <Award className="w-4 h-4 shrink-0 text-amber-500" />
                 {!sidebarColapsado && (
                   <span className="truncate">Notiprácticas</span>
                 )}

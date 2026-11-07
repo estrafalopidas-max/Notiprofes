@@ -7,7 +7,7 @@ import nodemailer from 'nodemailer';
 import { createServer as createViteServer } from 'vite';
 import { WebSocket, WebSocketServer } from 'ws';
 import { GoogleGenAI, Type } from '@google/genai';
-import { BOLETIN_39_SEED, BOLETIN_40_SEED, PERMISOS_POR_ROL, USUARIOS_DIRECTIVOS } from './src/data/seedNotiprofes40';
+import { BOLETIN_39_SEED, BOLETIN_40_SEED, BOLETIN_41_SEED, PERMISOS_POR_ROL, USUARIOS_DIRECTIVOS } from './src/data/seedNotiprofes40';
 import {
   BloqueCalendarioOficial,
   BoletinSemanal,
@@ -58,6 +58,7 @@ function normalizarListaBoletines(boletines: BoletinSemanal[]): BoletinSemanal[]
   // Semillas base garantizadas
   mapa.set(BOLETIN_39_SEED.numero, BOLETIN_39_SEED);
   mapa.set(BOLETIN_40_SEED.numero, BOLETIN_40_SEED);
+  mapa.set(BOLETIN_41_SEED.numero, BOLETIN_41_SEED);
 
   for (const b of boletines) {
     if (b.numero === 39) {
@@ -65,15 +66,24 @@ function normalizarListaBoletines(boletines: BoletinSemanal[]): BoletinSemanal[]
         ...BOLETIN_39_SEED,
         ...b,
         numero: 39,
-        fechaEmision: '06/11/2026',
-        semanaTexto: 'Semana del 2 de noviembre al 6 de noviembre de 2026.',
-        descripcionPeriodo: 'Programación de la DÉCIMA semana del TERCER periodo del año lectivo.',
+        fechaEmision: '30/10/2026',
+        semanaTexto: 'Semana del 26 de octubre al 30 de octubre de 2026.',
+        descripcionPeriodo: 'Programación de la NOVENA semana del TERCER periodo del año lectivo.',
       });
     } else if (b.numero === 40) {
       mapa.set(40, {
         ...BOLETIN_40_SEED,
         ...b,
         numero: 40,
+        fechaEmision: '06/11/2026',
+        semanaTexto: 'Semana del 2 de noviembre al 6 de noviembre de 2026.',
+        descripcionPeriodo: 'Programación de la DÉCIMA semana del TERCER periodo del año lectivo.',
+      });
+    } else if (b.numero === 41) {
+      mapa.set(41, {
+        ...BOLETIN_41_SEED,
+        ...b,
+        numero: 41,
         fechaEmision: '13/11/2026',
         semanaTexto: 'Semana del 9 de noviembre al 13 de noviembre de 2026.',
         descripcionPeriodo: 'Programación de la UNDÉCIMA semana del TERCER periodo del año lectivo.',
@@ -95,7 +105,7 @@ function cargarBaseDatos(): EstadoAlmacenamiento {
         const normalizados = normalizarListaBoletines(parsed.boletines);
         const activoExiste = normalizados.some((b) => b.id === parsed.boletinActivoId);
         const estadoFinal: EstadoAlmacenamiento = {
-          boletinActivoId: activoExiste ? parsed.boletinActivoId : BOLETIN_39_SEED.id,
+          boletinActivoId: activoExiste ? parsed.boletinActivoId : BOLETIN_40_SEED.id,
           boletines: normalizados,
         };
         guardarBaseDatos(estadoFinal);
@@ -107,8 +117,8 @@ function cargarBaseDatos(): EstadoAlmacenamiento {
   }
 
   const inicial: EstadoAlmacenamiento = {
-    boletinActivoId: BOLETIN_39_SEED.id,
-    boletines: [BOLETIN_39_SEED, BOLETIN_40_SEED],
+    boletinActivoId: BOLETIN_40_SEED.id,
+    boletines: [BOLETIN_39_SEED, BOLETIN_40_SEED, BOLETIN_41_SEED],
   };
   guardarBaseDatos(inicial);
   return inicial;
