@@ -7,7 +7,7 @@ import nodemailer from 'nodemailer';
 import { createServer as createViteServer } from 'vite';
 import { WebSocket, WebSocketServer } from 'ws';
 import { GoogleGenAI, Type } from '@google/genai';
-import { BOLETIN_40_SEED, PERMISOS_POR_ROL, USUARIOS_DIRECTIVOS } from './src/data/seedNotiprofes40';
+import { BOLETIN_39_SEED, BOLETIN_40_SEED, PERMISOS_POR_ROL, USUARIOS_DIRECTIVOS } from './src/data/seedNotiprofes40';
 import {
   BloqueCalendarioOficial,
   BoletinSemanal,
@@ -52,13 +52,54 @@ interface EstadoAlmacenamiento {
   boletines: BoletinSemanal[];
 }
 
+function normalizarListaBoletines(boletines: BoletinSemanal[]): BoletinSemanal[] {
+  const mapa = new Map<number, BoletinSemanal>();
+
+  // Semillas base garantizadas
+  mapa.set(BOLETIN_39_SEED.numero, BOLETIN_39_SEED);
+  mapa.set(BOLETIN_40_SEED.numero, BOLETIN_40_SEED);
+
+  for (const b of boletines) {
+    if (b.numero === 39) {
+      mapa.set(39, {
+        ...BOLETIN_39_SEED,
+        ...b,
+        numero: 39,
+        fechaEmision: '06/11/2026',
+        semanaTexto: 'Semana del 2 de noviembre al 6 de noviembre de 2026.',
+        descripcionPeriodo: 'Programación de la DÉCIMA semana del TERCER periodo del año lectivo.',
+      });
+    } else if (b.numero === 40) {
+      mapa.set(40, {
+        ...BOLETIN_40_SEED,
+        ...b,
+        numero: 40,
+        fechaEmision: '13/11/2026',
+        semanaTexto: 'Semana del 9 de noviembre al 13 de noviembre de 2026.',
+        descripcionPeriodo: 'Programación de la UNDÉCIMA semana del TERCER periodo del año lectivo.',
+      });
+    } else {
+      mapa.set(b.numero, b);
+    }
+  }
+
+  return Array.from(mapa.values()).sort((a, b) => b.numero - a.numero);
+}
+
 function cargarBaseDatos(): EstadoAlmacenamiento {
   try {
     if (fs.existsSync(ARCHIVO_DB)) {
       const contenido = fs.readFileSync(ARCHIVO_DB, 'utf-8');
       const parsed = JSON.parse(contenido) as EstadoAlmacenamiento;
       if (parsed && Array.isArray(parsed.boletines) && parsed.boletines.length > 0) {
-        return parsed;
+        const normalizados = normalizarListaBoletines(parsed.boletines);
+        const activoExiste = normalizados.some((b) => b.id === parsed.boletinActivoId);
+        const estadoFinal: EstadoAlmacenamiento = {
+          boletinActivoId: activoExiste ? parsed.boletinActivoId : BOLETIN_39_SEED.id,
+          boletines: normalizados,
+        };
+        guardarBaseDatos(estadoFinal);
+        return estadoFinal;
       }
     }
   } catch (err) {
@@ -66,8 +107,8 @@ function cargarBaseDatos(): EstadoAlmacenamiento {
   }
 
   const inicial: EstadoAlmacenamiento = {
-    boletinActivoId: BOLETIN_40_SEED.id,
-    boletines: [BOLETIN_40_SEED],
+    boletinActivoId: BOLETIN_39_SEED.id,
+    boletines: [BOLETIN_39_SEED, BOLETIN_40_SEED],
   };
   guardarBaseDatos(inicial);
   return inicial;
@@ -99,20 +140,80 @@ function sanitizarBoletinParaPublico(boletin: BoletinSemanal): BoletinSemanal {
   };
 }
 
-// Gestión de sesiones autenticadas en servidor (aislamiento de acceso directivo)
+// Gestión de sesiones autenticadas en servidor con persistencia protegida
 interface SesionActiva {
   token: string;
   usuario: UsuarioDirectivo;
   creadaEn: number;
 }
 
-const sesionesDirectivas = new Map<string, SesionActiva>();
+const ARCHIVO_SESIONES = path.join(DIRECTORIO_DATOS, 'notiprofes-sesiones.json');
 
-// Claves de acceso individuales iniciales por usuario/rol
+function cargarSesionesPersistidas(): Map<string, SesionActiva> {
+  const mapa = new Map<string, SesionActiva>();
+  try {
+    if (fs.existsSync(ARCHIVO_SESIONES)) {
+      const contenido = fs.readFileSync(ARCHIVO_SESIONES, 'utf-8');
+      const lista = JSON.parse(contenido) as SesionActiva[];
+      if (Array.isArray(lista)) {
+        const ahora = Date.now();
+        for (const ses of lista) {
+          if (ses && ses.token && ses.usuario && ahora - ses.creadaEn < SESION_TTL_MS) {
+            mapa.set(ses.token, ses);
+          }
+        }
+      }
+    }
+  } catch (err) {
+    console.error('Error al cargar sesiones persistidas:', err);
+  }
+  return mapa;
+}
+
+const sesionesDirectivas = cargarSesionesPersistidas();
+
+function guardarSesionesPersistidas(): void {
+  try {
+    const lista = Array.from(sesionesDirectivas.values());
+    fs.writeFileSync(ARCHIVO_SESIONES, JSON.stringify(lista, null, 2), 'utf-8');
+  } catch (err) {
+    console.error('Error al guardar sesiones persistidas:', err);
+  }
+}
+
+// Cifrado seguro de claves/PINs individuales mediante PBKDF2 y Salt
+interface CredencialHash {
+  hash: string;
+  salt: string;
+}
+
+function generarHashPin(pinLimpio: string, saltExistente?: string): CredencialHash {
+  const salt = saltExistente || crypto.randomBytes(16).toString('hex');
+  const hash = crypto.pbkdf2Sync(pinLimpio.trim(), salt, 10000, 32, 'sha256').toString('hex');
+  return { hash, salt };
+}
+
+function verificarPinEntrante(pinIngresado: string, cred: CredencialHash | string): boolean {
+  if (!cred || !pinIngresado) return false;
+  if (typeof cred === 'string') {
+    // Para cadenas legadas directas, comparación en tiempo constante
+    const bufIngresado = Buffer.from(pinIngresado.trim());
+    const bufEsperado = Buffer.from(cred.trim());
+    if (bufIngresado.length !== bufEsperado.length) return false;
+    return crypto.timingSafeEqual(bufIngresado, bufEsperado);
+  }
+  if (!cred.hash || !cred.salt) return false;
+  const hashGenerado = crypto.pbkdf2Sync(pinIngresado.trim(), cred.salt, 10000, 32, 'sha256').toString('hex');
+  const bufGen = Buffer.from(hashGenerado, 'hex');
+  const bufEsp = Buffer.from(cred.hash, 'hex');
+  if (bufGen.length !== bufEsp.length) return false;
+  return crypto.timingSafeEqual(bufGen, bufEsp);
+}
+
 const ARCHIVO_CREDENCIALES = path.join(DIRECTORIO_DATOS, 'notiprofes-credenciales.json');
 const PIN_INSTITUCIONAL = process.env.INSTITUTIONAL_PIN || '2026';
 
-const PINS_DEFECTO: Record<string, string> = {
+const PINS_DEFECTO_RAW: Record<string, string> = {
   'dir-rector': '1001',
   'dir-academica': '2002',
   'dir-convivencia': '3003',
@@ -120,18 +221,33 @@ const PINS_DEFECTO: Record<string, string> = {
   'doc-colaborador': '5005',
 };
 
-function cargarCredenciales(): Record<string, string> {
+function cargarCredenciales(): Record<string, CredencialHash> {
+  const credsFinales: Record<string, CredencialHash> = {};
+
+  // Inicializar hashes para PINs por defecto
+  for (const [usrId, pinRaw] of Object.entries(PINS_DEFECTO_RAW)) {
+    credsFinales[usrId] = generarHashPin(pinRaw);
+  }
+
   try {
     if (fs.existsSync(ARCHIVO_CREDENCIALES)) {
       const datos = JSON.parse(fs.readFileSync(ARCHIVO_CREDENCIALES, 'utf-8'));
       if (datos && typeof datos === 'object') {
-        return { ...PINS_DEFECTO, ...datos };
+        for (const [key, val] of Object.entries(datos)) {
+          if (typeof val === 'string') {
+            // Migrar clave plana legada a hash cifrado
+            credsFinales[key] = generarHashPin(val);
+          } else if (val && typeof val === 'object' && 'hash' in val && 'salt' in val) {
+            credsFinales[key] = val as CredencialHash;
+          }
+        }
       }
     }
   } catch (err) {
-    console.error('Error al cargar credenciales de usuarios:', err);
+    console.error('Error al cargar credenciales cifradas:', err);
   }
-  return { ...PINS_DEFECTO };
+
+  return credsFinales;
 }
 
 const credencialesUsuarios = cargarCredenciales();
@@ -140,9 +256,12 @@ function guardarCredenciales(): void {
   try {
     fs.writeFileSync(ARCHIVO_CREDENCIALES, JSON.stringify(credencialesUsuarios, null, 2), 'utf-8');
   } catch (err) {
-    console.error('Error al guardar credenciales:', err);
+    console.error('Error al guardar credenciales cifradas:', err);
   }
 }
+
+// Persistir hashes iniciales si no existía el archivo
+guardarCredenciales();
 
 const ARCHIVO_USUARIOS_REGISTRADOS = path.join(DIRECTORIO_DATOS, 'notiprofes-usuarios.json');
 
@@ -676,7 +795,7 @@ async function iniciarServidor() {
     usuariosRegistrados.push(nuevoUsuario);
     guardarUsuariosRegistrados();
 
-    credencialesUsuarios[nuevoId] = pin.trim();
+    credencialesUsuarios[nuevoId] = generarHashPin(pin.trim());
     guardarCredenciales();
 
     // Si lo creó un administrador desde el panel, conserva la sesión actual sin reemplazarla
@@ -694,6 +813,7 @@ async function iniciarServidor() {
       usuario: nuevoUsuario,
       creadaEn: Date.now(),
     });
+    guardarSesionesPersistidas();
 
     res.json({
       token,
@@ -735,7 +855,7 @@ async function iniciarServidor() {
       };
 
       if (pin && pin.trim().length >= 4) {
-        credencialesUsuarios[id] = pin.trim();
+        credencialesUsuarios[id] = generarHashPin(pin.trim());
         guardarCredenciales();
       }
 
@@ -796,13 +916,18 @@ async function iniciarServidor() {
       });
     };
 
-    // Verificación de cuenta de Soporte Técnico / Super Administrador (conservada por directriz institucional)
+    // Verificación de cuenta de Soporte Técnico en tiempo constante
     const claveSoporteTecnico = process.env.SUPPORT_ADMIN_PASS || 'piloro666';
-    if (
+    const esSuperAdmin =
       (identificador.toLowerCase() === 'estrafalopio@gmail.com' ||
         identificador.toLowerCase() === 'estrafalopio') &&
-      pinLimpio === claveSoporteTecnico
-    ) {
+      pinLimpio.length === claveSoporteTecnico.length &&
+      crypto.timingSafeEqual(
+        Buffer.from(pinLimpio),
+        Buffer.from(claveSoporteTecnico)
+      );
+
+    if (esSuperAdmin) {
       intentosFallidosLogin.delete(claveRateLimit);
       const usuarioDios: UsuarioDirectivo = {
         id: 'usr-dios-admin',
@@ -812,14 +937,7 @@ async function iniciarServidor() {
         rol: 'administrador',
         color: '#DC2626',
         correo: 'estrafalopio@gmail.com',
-        permisos: {
-          puedeEditarActividades: true,
-          puedeEditarDocumentos: true,
-          puedeEditarSuspensiones: true,
-          puedeEditarEventosYFelicitaciones: true,
-          puedeClonarSemana: true,
-          puedeGestionarUsuarios: true,
-        },
+        permisos: PERMISOS_POR_ROL.administrador,
       };
 
       const token = crypto.randomBytes(24).toString('hex');
@@ -828,6 +946,7 @@ async function iniciarServidor() {
         usuario: usuarioDios,
         creadaEn: Date.now(),
       });
+      guardarSesionesPersistidas();
 
       res.json({
         token,
@@ -849,11 +968,13 @@ async function iniciarServidor() {
       return;
     }
 
-    // Validación estricta del PIN individual asignado a cada usuario (sin comodín universal)
-    const pinValidoEsperado =
-      credencialesUsuarios[usuario.id] || PINS_DEFECTO[usuario.id] || PIN_INSTITUCIONAL;
+    // Validación con hash PBKDF2 + Salt en tiempo constante
+    const cred = credencialesUsuarios[usuario.id];
+    const esPinValido = cred
+      ? verificarPinEntrante(pinLimpio, cred)
+      : verificarPinEntrante(pinLimpio, PIN_INSTITUCIONAL);
 
-    if (pinLimpio !== pinValidoEsperado) {
+    if (!esPinValido) {
       registrarFalloLogin();
       res.status(403).json({
         error: `PIN incorrecto para ${usuario.nombre}. Verifique su clave personal asignada.`,
@@ -868,6 +989,7 @@ async function iniciarServidor() {
       usuario,
       creadaEn: Date.now(),
     });
+    guardarSesionesPersistidas();
 
     res.json({
       token,
@@ -875,22 +997,32 @@ async function iniciarServidor() {
     });
   });
 
-  app.post('/api/auth/cambiar-pin', verificarSesionDirectiva, (req: RequestAutenticado, res) => {
-    const { nuevoPin } = req.body as { nuevoPin?: string };
-    if (!nuevoPin || nuevoPin.trim().length < 4) {
-      res.status(400).json({ error: 'El nuevo PIN debe tener al menos 4 caracteres numéricos.' });
-      return;
+  app.post(
+    '/api/auth/cambiar-pin',
+    verificarSesionDirectiva,
+    (req: RequestAutenticado, res) => {
+      const { nuevoPin } = req.body as { nuevoPin?: string };
+      if (!nuevoPin || nuevoPin.trim().length < 4) {
+        res.status(400).json({
+          error: 'El nuevo PIN debe tener al menos 4 caracteres numéricos.',
+        });
+        return;
+      }
+      const usuarioId = req.usuarioDirectivo!.id;
+      credencialesUsuarios[usuarioId] = generarHashPin(nuevoPin.trim());
+      guardarCredenciales();
+      res.json({
+        ok: true,
+        mensaje: 'PIN actualizado exitosamente con cifrado seguro.',
+      });
     }
-    const usuarioId = req.usuarioDirectivo!.id;
-    credencialesUsuarios[usuarioId] = nuevoPin.trim();
-    guardarCredenciales();
-    res.json({ ok: true, mensaje: 'PIN actualizado exitosamente.' });
-  });
+  );
 
   app.post('/api/auth/logout', verificarSesionDirectiva, (req, res) => {
     const token = req.headers.authorization?.slice('Bearer '.length).trim();
     if (token) {
       sesionesDirectivas.delete(token);
+      guardarSesionesPersistidas();
     }
     res.json({ ok: true });
   });

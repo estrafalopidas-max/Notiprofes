@@ -21,7 +21,7 @@ import {
   Download,
   X,
 } from 'lucide-react';
-import { BOLETIN_40_SEED } from './data/seedNotiprofes40';
+import { BOLETIN_39_SEED, BOLETIN_40_SEED } from './data/seedNotiprofes40';
 import {
   BoletinSemanal,
   OperacionBoletin,
@@ -42,6 +42,7 @@ import { ModalPublicacionNube } from './components/ModalPublicacionNube';
 import { DropdownPersonalizado } from './components/DropdownPersonalizado';
 import { calcularEstadoCalendarioBoletin } from './utils/calendarioEscolar2026';
 import { descargarPdfBoletinDirecto } from './services/googleDrivePdfService';
+import { ToastNotificacionEditor } from './components/ToastNotificacionEditor';
 
 type VistaPrincipal = 'boletin' | 'editor' | 'nas';
 
@@ -64,8 +65,14 @@ export default function App() {
   const [vistaActiva, setVistaActiva] = useState<VistaPrincipal>('boletin');
   const [seccionEditorInicial, setSeccionEditorInicial] =
     useState<SeccionEditor>('semanal');
-  const [boletin, setBoletin] = useState<BoletinSemanal>(BOLETIN_40_SEED);
+  const [boletin, setBoletin] = useState<BoletinSemanal>(BOLETIN_39_SEED);
   const [listaBoletines, setListaBoletines] = useState<ResumenBoletin[]>([
+    {
+      id: BOLETIN_39_SEED.id,
+      numero: BOLETIN_39_SEED.numero,
+      fechaEmision: BOLETIN_39_SEED.fechaEmision,
+      semanaTexto: BOLETIN_39_SEED.semanaTexto,
+    },
     {
       id: BOLETIN_40_SEED.id,
       numero: BOLETIN_40_SEED.numero,
@@ -1198,6 +1205,12 @@ export default function App() {
         usuarioActual={usuarioDirectivo}
         onCerrar={() => setModalConfirmarLogoutAbierto(false)}
         onConfirmarLogout={handleCerrarSesion}
+      />
+
+      {/* TOAST DE NOTIFICACIÓN DE EDICIÓN EN TIEMPO REAL (ESQUINA INFERIOR DERECHA) */}
+      <ToastNotificacionEditor
+        notificacion={notificacionEditor}
+        onCerrar={() => setNotificacionEditor(null)}
       />
     </div>
   );
