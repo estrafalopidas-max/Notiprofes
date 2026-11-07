@@ -759,7 +759,7 @@ export const PanelEditorColaborativo: React.FC<PanelEditorColaborativoProps> = (
       {/* Encabezado Ejecutivo de Colaboración Multi-Equipo */}
       <section
         aria-label="Estado de edición colaborativa en tiempo real"
-        className="bg-linear-to-r from-[#022c5e] via-[#034EA2] to-[#007DC5] text-white rounded-2xl p-6 flex flex-col lg:flex-row lg:items-center justify-between gap-4 border border-[#034EA2] shadow-xs"
+        className="bg-gradient-to-r from-[#022c5e] via-[#034EA2] to-[#007DC5] text-white rounded-2xl p-6 flex flex-col lg:flex-row lg:items-center justify-between gap-4 border border-[#034EA2] shadow-xs"
       >
         <div className="space-y-1">
           <div className="text-xs text-sky-200 font-mono-tabular font-medium">
@@ -1108,8 +1108,8 @@ export const PanelEditorColaborativo: React.FC<PanelEditorColaborativoProps> = (
                     <div
                       className={`px-5 py-3.5 flex flex-wrap items-center justify-between gap-3 border-b ${
                         dia.esFestivo
-                          ? 'bg-linear-to-r from-rose-50 via-rose-50/50 to-white border-rose-100'
-                          : 'bg-linear-to-r from-[#034EA2]/10 via-sky-50/60 to-white border-slate-100'
+                          ? 'bg-gradient-to-r from-rose-50 via-rose-50/50 to-white border-rose-100'
+                          : 'bg-gradient-to-r from-[#034EA2]/10 via-sky-50/60 to-white border-slate-100'
                       }`}
                     >
                       <button
@@ -2298,8 +2298,57 @@ export const PanelEditorColaborativo: React.FC<PanelEditorColaborativoProps> = (
             </form>
           )}
 
-          <div className="overflow-x-auto">
-            <table className="w-full border-collapse text-xs">
+          {/* VISTA MÓVIL (TARJETAS COMPACTAS POR FUNCIONARIO CON BOTÓN DE EDICIÓN) */}
+          <div className="block sm:hidden space-y-3">
+            {boletin.horariosApoyo.map((h) => (
+              <div
+                key={h.id}
+                className="p-4 rounded-xl border border-slate-200 bg-slate-50/80 space-y-3"
+              >
+                <div className="flex items-start justify-between gap-2 border-b border-slate-200/80 pb-2">
+                  <div>
+                    <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded bg-[#034EA2] text-white inline-block mb-1">
+                      {h.rol}
+                    </span>
+                    <h4 className="text-sm font-bold text-slate-900">{h.nombre}</h4>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setHorarioEditando(h)}
+                    className="px-3 py-1 text-xs font-bold text-[#034EA2] bg-sky-100 hover:bg-sky-200 rounded-lg shrink-0 cursor-pointer"
+                  >
+                    Editar fila
+                  </button>
+                </div>
+                <div className="space-y-1.5 text-xs">
+                  <div className="flex items-center justify-between p-2 rounded-lg bg-white border border-slate-200/60">
+                    <span className="font-bold text-[#034EA2]">Lunes:</span>
+                    <span className="font-mono-tabular font-medium text-slate-800">{h.lunes}</span>
+                  </div>
+                  <div className="flex items-center justify-between p-2 rounded-lg bg-white border border-slate-200/60">
+                    <span className="font-bold text-[#034EA2]">Martes:</span>
+                    <span className="font-mono-tabular font-medium text-slate-800">{h.martes}</span>
+                  </div>
+                  <div className="flex items-center justify-between p-2 rounded-lg bg-white border border-slate-200/60">
+                    <span className="font-bold text-[#034EA2]">Miércoles:</span>
+                    <span className="font-mono-tabular font-medium text-slate-800">{h.miercoles}</span>
+                  </div>
+                  <div className="flex items-center justify-between p-2 rounded-lg bg-white border border-slate-200/60">
+                    <span className="font-bold text-[#034EA2]">Jueves:</span>
+                    <span className="font-mono-tabular font-medium text-slate-800">{h.jueves}</span>
+                  </div>
+                  <div className="flex items-center justify-between p-2 rounded-lg bg-white border border-slate-200/60">
+                    <span className="font-bold text-[#034EA2]">Viernes:</span>
+                    <span className="font-mono-tabular font-medium text-slate-800">{h.viernes}</span>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* VISTA ESCRITORIO CON ANCHO MÍNIMO Y SCROLL SUAVE */}
+          <div className="hidden sm:block overflow-x-auto border border-slate-200 rounded-xl">
+            <table className="w-full min-w-[680px] border-collapse text-xs">
               <thead>
                 <tr className="bg-slate-50 border-b border-slate-200 text-slate-600">
                   <th className="p-3 text-left font-semibold">Funcionario / Cargo</th>

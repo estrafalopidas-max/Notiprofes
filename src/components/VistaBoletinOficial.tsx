@@ -62,6 +62,26 @@ export const VistaBoletinOficial: React.FC<VistaBoletinOficialProps> = ({
     }
   });
   const [diasColapsados, setDiasColapsados] = useState<Record<string, boolean>>({});
+  const [calendarioAbierto, setCalendarioAbierto] = useState<boolean>(() => {
+    try {
+      const v = localStorage.getItem('notiprofes_cal_abierto');
+      return v === null ? true : v === '1';
+    } catch {
+      return true;
+    }
+  });
+
+  const toggleCalendarioAbierto = () => {
+    setCalendarioAbierto((prev) => {
+      const nxt = !prev;
+      try {
+        localStorage.setItem('notiprofes_cal_abierto', nxt ? '1' : '0');
+      } catch {
+        // Ignorar fallo de almacenamiento local
+      }
+      return nxt;
+    });
+  };
 
   const cambiarModoVista = (modo: 'ejecutiva' | 'tabla') => {
     setModoVista(modo);
@@ -169,10 +189,10 @@ export const VistaBoletinOficial: React.FC<VistaBoletinOficialProps> = ({
       {/* HERO COMPACTO INSTITUCIONAL I.E. VILLA FLORA */}
       <section
         aria-label="Encabezado Institucional Noti-Profes"
-        className="bg-linear-to-r from-[#022c5e] via-[#034EA2] to-[#007DC5] text-white rounded-2xl border border-[#034EA2] overflow-hidden shadow-xs"
+        className="bg-gradient-to-r from-[#022c5e] via-[#034EA2] to-[#007DC5] text-white rounded-2xl border border-[#034EA2] overflow-hidden shadow-xs"
       >
         {/* Franja cromática corporativa superior (#034EA2 -> #007DC5 -> #ED145B) */}
-        <div className="h-1 w-full bg-linear-to-r from-[#034EA2] via-[#007DC5] to-[#ED145B]" />
+        <div className="h-1 w-full bg-gradient-to-r from-[#034EA2] via-[#007DC5] to-[#ED145B]" />
 
         <div className="px-5 py-3.5 sm:px-6 sm:py-4 grid grid-cols-1 lg:grid-cols-12 gap-4 items-center">
           {/* Columna Izquierda: Semana, Programación del Periodo y De/Para */}
@@ -480,7 +500,7 @@ export const VistaBoletinOficial: React.FC<VistaBoletinOficialProps> = ({
         aria-label="Documentos y Enlaces Permanentes"
         className="bg-white border border-slate-200 rounded-2xl p-6 sm:p-8 shadow-2xs space-y-5"
       >
-        <div className="bg-linear-to-r from-[#0F223D] via-[#034EA2] to-[#007DC5] p-4 sm:px-6 rounded-xl text-white flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs">
+        <div className="bg-gradient-to-r from-[#0F223D] via-[#034EA2] to-[#007DC5] p-4 sm:px-6 rounded-xl text-white flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs">
           <div className="flex items-center gap-3">
             <div className="w-2.5 h-7 rounded-full bg-[#007DC5]" />
             <h2 className="text-base sm:text-lg font-display font-extrabold uppercase tracking-wide text-white">
@@ -571,7 +591,7 @@ export const VistaBoletinOficial: React.FC<VistaBoletinOficialProps> = ({
         aria-label="Programación Semanal de Actividades"
         className="bg-white border border-slate-200 rounded-2xl p-6 sm:p-8 shadow-2xs space-y-6"
       >
-        <div className="bg-linear-to-r from-[#0F223D] via-[#034EA2] to-[#007DC5] p-4 sm:px-6 rounded-xl text-white flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs">
+        <div className="bg-gradient-to-r from-[#0F223D] via-[#034EA2] to-[#007DC5] p-4 sm:px-6 rounded-xl text-white flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs">
           <div className="flex items-center gap-3">
             <div className="w-2.5 h-7 rounded-full bg-[#ED145B]" />
             <div>
@@ -613,30 +633,46 @@ export const VistaBoletinOficial: React.FC<VistaBoletinOficialProps> = ({
               const estaColapsado = Boolean(diasColapsados[dia.id]);
 
               if (dia.esFestivo && dia.actividades.length === 0) {
+                const idxDia = boletin.dias.findIndex((d) => d.id === dia.id);
                 return (
                   <div
                     key={dia.id}
                     className={`rounded-2xl border overflow-hidden border-l-4 border-l-[#ED145B] ${
                       esDiaActual
-                        ? 'border-2 border-[#ED145B] bg-rose-50/50 shadow-sm ring-2 ring-rose-100'
-                        : 'border-rose-200 bg-rose-50/40'
+                        ? 'border-2 border-[#ED145B] bg-white shadow-md ring-2 ring-rose-200'
+                        : 'border-rose-200 bg-white shadow-xs'
                     }`}
                   >
-                    <div className="px-5 py-3.5 bg-linear-to-r from-rose-100/80 via-rose-50 to-white border-b border-rose-200 flex flex-wrap items-center justify-between gap-3">
+                    <div
+                      className={`px-5 py-3.5 border-b flex flex-wrap items-center justify-between gap-3 text-white ${
+                        esDiaActual
+                          ? 'bg-gradient-to-r from-[#0F223D] via-[#034EA2] to-[#007DC5] border-b-2 border-[#ED145B]'
+                          : 'bg-gradient-to-r from-[#034EA2] to-[#007DC5] border-sky-600/50'
+                      }`}
+                    >
                       <div className="flex items-center gap-3">
+                        <span
+                          className={`w-8 h-8 rounded-xl font-mono-tabular font-extrabold text-xs inline-flex items-center justify-center shadow-xs shrink-0 ${
+                            esDiaActual
+                              ? 'bg-[#ED145B] text-white'
+                              : 'bg-white text-[#034EA2]'
+                          }`}
+                        >
+                          {String(idxDia >= 0 ? idxDia + 1 : 1).padStart(2, '0')}
+                        </span>
+                        <h3 className="text-sm sm:text-base font-display font-extrabold uppercase tracking-wide text-white">
+                          {dia.fechaTexto}
+                        </h3>
                         <span className="px-2.5 py-1 text-[11px] font-mono-tabular font-bold uppercase bg-[#ED145B] text-white rounded-lg shadow-2xs">
                           FESTIVO
                         </span>
-                        <h3 className="text-sm sm:text-base font-display font-extrabold text-[#0F172A] uppercase">
-                          {dia.fechaTexto}
-                        </h3>
                         {esDiaActual && (
                           <span className="px-2.5 py-0.5 text-xs font-extrabold bg-[#ED145B] text-white rounded-full">
                             HOY
                           </span>
                         )}
                       </div>
-                      <span className="text-xs font-bold text-[#ED145B]">
+                      <span className="text-xs font-bold text-sky-200">
                         {dia.notaHorario || 'DÍA FESTIVO OFICIAL'}
                       </span>
                     </div>
@@ -660,8 +696,8 @@ export const VistaBoletinOficial: React.FC<VistaBoletinOficialProps> = ({
                   <div
                     className={`px-5 py-3.5 border-b flex flex-wrap items-center justify-between gap-3 text-white ${
                       esDiaActual
-                        ? 'bg-linear-to-r from-[#0F223D] via-[#034EA2] to-[#007DC5] border-b-2 border-[#ED145B]'
-                        : 'bg-linear-to-r from-[#034EA2] to-[#007DC5] border-sky-600/50'
+                        ? 'bg-gradient-to-r from-[#0F223D] via-[#034EA2] to-[#007DC5] border-b-2 border-[#ED145B]'
+                        : 'bg-gradient-to-r from-[#034EA2] to-[#007DC5] border-sky-600/50'
                     }`}
                   >
                     <button
@@ -1006,9 +1042,12 @@ export const VistaBoletinOficial: React.FC<VistaBoletinOficialProps> = ({
             aria-label={`Calendario Académico Oficial ${calActivo.anio} y Festivos`}
             className="bg-white border border-slate-200 rounded-2xl p-6 sm:p-8 shadow-2xs space-y-6"
           >
-            <div className="bg-linear-to-r from-[#0F223D] via-[#034EA2] to-[#007DC5] p-4 sm:px-6 rounded-xl text-white flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs">
+            <div
+              onClick={toggleCalendarioAbierto}
+              className="bg-gradient-to-r from-[#0F223D] via-[#034EA2] to-[#007DC5] p-4 sm:px-6 rounded-xl text-white flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs cursor-pointer select-none transition-opacity hover:opacity-95"
+            >
               <div className="flex items-center gap-3">
-                <div className="w-2.5 h-7 rounded-full bg-[#007DC5]" />
+                <div className="w-2.5 h-7 rounded-full bg-[#007DC5] shrink-0" />
                 <div>
                   <h2 className="text-base sm:text-lg font-display font-extrabold uppercase tracking-wide text-white">
                     Calendario Académico Oficial {calActivo.anio} (Medellín) y Festivos del Año
@@ -1018,16 +1057,39 @@ export const VistaBoletinOficial: React.FC<VistaBoletinOficialProps> = ({
                   </p>
                 </div>
               </div>
-              <span className="px-3 py-1.5 text-xs font-extrabold rounded-full bg-white/20 text-white border border-white/30 self-start sm:self-center">
-                {estadoCalendario.numeroPeriodo}
-                <sup className="text-[9px] font-extrabold lowercase ml-0.5">
-                  {estadoCalendario.ordinalSup}
-                </sup>{' '}
-                PERIODO · {estadoCalendario.textoSemanaDePeriodo}
-              </span>
+              <div className="flex flex-wrap items-center gap-2.5 self-start sm:self-center">
+                <span className="px-3 py-1.5 text-xs font-extrabold rounded-full bg-white/20 text-white border border-white/30">
+                  {estadoCalendario.numeroPeriodo}
+                  <sup className="text-[9px] font-extrabold lowercase ml-0.5">
+                    {estadoCalendario.ordinalSup}
+                  </sup>{' '}
+                  PERIODO · {estadoCalendario.textoSemanaDePeriodo}
+                </span>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    toggleCalendarioAbierto();
+                  }}
+                  className="px-3.5 py-1.5 text-xs font-extrabold rounded-full bg-white text-[#034EA2] hover:bg-sky-50 transition-all cursor-pointer shadow-xs border border-white/40 flex items-center gap-1.5"
+                >
+                  {calendarioAbierto ? (
+                    <>
+                      <ChevronUp className="w-3.5 h-3.5 text-[#034EA2]" />
+                      <span>▲ Ocultar Calendario</span>
+                    </>
+                  ) : (
+                    <>
+                      <ChevronDown className="w-3.5 h-3.5 text-[#034EA2]" />
+                      <span>▼ Desplegar Calendario</span>
+                    </>
+                  )}
+                </button>
+              </div>
             </div>
 
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+            {calendarioAbierto && (
+              <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 animate-fadeIn">
               {/* Tablas Oficiales Artículos 2, 3, 4 y 5 */}
               <div className="lg:col-span-7 grid grid-cols-1 sm:grid-cols-2 gap-4">
                 {/* Art. 2: Semanas Lectivas */}
@@ -1191,6 +1253,7 @@ export const VistaBoletinOficial: React.FC<VistaBoletinOficialProps> = ({
                 </div>
               </div>
             </div>
+          )}
           </section>
         );
       })()}
@@ -1201,7 +1264,7 @@ export const VistaBoletinOficial: React.FC<VistaBoletinOficialProps> = ({
         className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-2xs"
       >
         {/* Cabecera gráfica Noti-Prácticas con paleta Villa Flora */}
-        <div className="bg-linear-to-r from-[#034EA2] via-[#007DC5] to-[#034EA2] px-6 sm:px-8 py-5 text-white flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div className="bg-gradient-to-r from-[#034EA2] via-[#007DC5] to-[#034EA2] px-6 sm:px-8 py-5 text-white flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div className="flex items-center gap-3">
             <div className="p-2.5 rounded-xl bg-white/15 border border-white/20">
               <Sparkles className="w-5 h-5 text-white" />
@@ -1362,7 +1425,7 @@ export const VistaBoletinOficial: React.FC<VistaBoletinOficialProps> = ({
         aria-label="Horarios del Personal de Apoyo"
         className="bg-white border border-slate-200 rounded-2xl p-6 sm:p-8 shadow-2xs space-y-6"
       >
-        <div className="bg-linear-to-r from-[#0F223D] via-[#034EA2] to-[#007DC5] p-4 sm:px-6 rounded-xl text-white flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs">
+        <div className="bg-gradient-to-r from-[#0F223D] via-[#034EA2] to-[#007DC5] p-4 sm:px-6 rounded-xl text-white flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs">
           <div className="flex items-center gap-3">
             <div className="w-2.5 h-7 rounded-full bg-[#034EA2]" />
             <div>
@@ -1379,8 +1442,54 @@ export const VistaBoletinOficial: React.FC<VistaBoletinOficialProps> = ({
           </span>
         </div>
 
-        <div className="overflow-x-auto border border-slate-200 rounded-xl">
-          <table className="w-full border-collapse text-left text-xs">
+        {/* VISTA MÓVIL: TARJETAS COMPACTAS POR FUNCIONARIO (ACCESO COMPLETO SIN CORTE) */}
+        <div className="block sm:hidden space-y-3.5">
+          <div className="flex items-center justify-between px-1 text-xs text-slate-500 font-medium">
+            <span>Horarios por funcionario ({boletin.horariosApoyo.length})</span>
+            <span className="text-[11px] font-bold text-[#034EA2]">Lunes a Viernes</span>
+          </div>
+          {boletin.horariosApoyo.map((h) => (
+            <div
+              key={h.id}
+              className="p-4 rounded-xl border border-slate-200 bg-slate-50/70 space-y-3 shadow-2xs"
+            >
+              <div className="border-b border-slate-200/80 pb-2.5 flex items-start justify-between gap-2">
+                <div>
+                  <span className="text-[10px] font-extrabold uppercase px-2 py-0.5 rounded bg-[#034EA2] text-white inline-block mb-1">
+                    {h.rol}
+                  </span>
+                  <h4 className="text-sm font-bold text-[#0F172A]">{h.nombre}</h4>
+                </div>
+              </div>
+              <div className="space-y-1.5 text-xs">
+                <div className="flex items-center justify-between p-2 rounded-lg bg-white border border-slate-200/80 shadow-2xs">
+                  <span className="font-bold text-[#034EA2]">Lunes</span>
+                  <span className="font-mono-tabular font-bold text-slate-700">{h.lunes}</span>
+                </div>
+                <div className="flex items-center justify-between p-2 rounded-lg bg-white border border-slate-200/80 shadow-2xs">
+                  <span className="font-bold text-[#034EA2]">Martes</span>
+                  <span className="font-mono-tabular font-bold text-slate-700">{h.martes}</span>
+                </div>
+                <div className="flex items-center justify-between p-2 rounded-lg bg-white border border-slate-200/80 shadow-2xs">
+                  <span className="font-bold text-[#034EA2]">Miércoles</span>
+                  <span className="font-mono-tabular font-bold text-slate-700">{h.miercoles}</span>
+                </div>
+                <div className="flex items-center justify-between p-2 rounded-lg bg-white border border-slate-200/80 shadow-2xs">
+                  <span className="font-bold text-[#034EA2]">Jueves</span>
+                  <span className="font-mono-tabular font-bold text-slate-700">{h.jueves}</span>
+                </div>
+                <div className="flex items-center justify-between p-2 rounded-lg bg-white border border-slate-200/80 shadow-2xs">
+                  <span className="font-bold text-[#034EA2]">Viernes</span>
+                  <span className="font-mono-tabular font-bold text-slate-700">{h.viernes}</span>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {/* VISTA TABLET / ESCRITORIO: MATRIZ DE TABLA HORIZONTAL CON DESPLAZAMIENTO SUAVE */}
+        <div className="hidden sm:block overflow-x-auto border border-slate-200 rounded-xl shadow-2xs">
+          <table className="w-full min-w-[660px] border-collapse text-left text-xs">
             <thead>
               <tr className="bg-slate-50 text-[#034EA2] border-b border-slate-200 font-display font-bold uppercase tracking-wider">
                 <th className="py-3 px-4 border-r border-slate-200">Funcionario / Rol</th>

@@ -530,6 +530,7 @@ export function obtenerInicialesResponsable(responsable: string): string {
  */
 export function generarHtmlPublicoBoletin(boletin: BoletinSemanal): string {
   const rutaLogoOficial = '/public/assets/aistudio/logo_html_859fb25c.png';
+  const nombreArchivoPdf = `Boletin_Oficial_N${boletin.numero}_IE_Villa_Flora.pdf`;
 
   const totalActividades = boletin.dias.reduce((acc, d) => acc + d.actividades.length, 0);
   const totalReprogramadas = boletin.dias.reduce(
@@ -634,22 +635,23 @@ export function generarHtmlPublicoBoletin(boletin: BoletinSemanal): string {
   const idDiaPresente = diaPresenteEnBoletin?.id || null;
 
   const tarjetasDiasGraficasHtml = boletin.dias
-    .map((dia) => {
+    .map((dia, idx) => {
       const esHoy = dia.id === idDiaPresente;
 
       if (dia.esFestivo && dia.actividades.length === 0) {
         return `
-        <div class="day-card festivo-card ${esHoy ? 'day-card-hoy' : ''}">
+        <div class="day-card ${esHoy ? 'day-card-hoy' : ''}">
           <div class="day-card-header ${esHoy ? 'day-header-hoy' : ''}">
             <div class="day-title-wrap">
-              <span class="day-pill-festivo">JORNADA FESTIVA</span>
+              <span class="day-count-badge">${idx + 1}</span>
               <h4>${escaparHtml(dia.fechaTexto)}</h4>
+              <span class="day-pill-festivo">JORNADA FESTIVA</span>
               ${esHoy ? `<span class="day-badge-hoy">🔥 HOY · DÍA EN CURSO</span>` : ''}
             </div>
-            <span class="day-meta">${escaparHtml(dia.notaHorario || 'DÍA FESTIVO')}</span>
+            <span class="day-meta">${escaparHtml(dia.notaHorario || 'DÍA FESTIVO OFICIAL')}</span>
           </div>
           <div class="day-empty">
-            Día festivo oficial — Sin actividades académicas presenciales programadas.
+            Jornada festiva nacional — Sin actividades académicas presenciales programadas.
           </div>
         </div>`;
       }
@@ -673,9 +675,15 @@ export function generarHtmlPublicoBoletin(boletin: BoletinSemanal): string {
                         : ''
                     }
                     <div class="act-meta-row">
-                      <span><strong>Responsable:</strong> ${escaparHtml(act.responsable)}</span>
+                      <span class="meta-item">
+                        <svg class="ico-meta ico-resp" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+                        <strong>Responsable:</strong> ${escaparHtml(act.responsable)}
+                      </span>
                       <span class="sep">·</span>
-                      <span><strong>Lugar:</strong> ${escaparHtml(act.lugar)}</span>
+                      <span class="meta-item">
+                        <svg class="ico-meta ico-lugar" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/></svg>
+                        <strong>Lugar:</strong> ${escaparHtml(act.lugar)}
+                      </span>
                     </div>
                   </div>
                 </div>`
@@ -687,7 +695,7 @@ export function generarHtmlPublicoBoletin(boletin: BoletinSemanal): string {
       <div class="day-card ${esHoy ? 'day-card-hoy' : ''}">
         <div class="day-card-header ${esHoy ? 'day-header-hoy' : ''}">
           <div class="day-title-wrap">
-            <span class="day-count-badge">${dia.actividades.length}</span>
+            <span class="day-count-badge">${idx + 1}</span>
             <h4>${escaparHtml(dia.fechaTexto)}</h4>
             ${esHoy ? `<span class="day-badge-hoy">🔥 HOY · DÍA EN CURSO</span>` : ''}
             ${dia.notaHorario ? `<span class="day-horario-tag">${escaparHtml(dia.notaHorario)}</span>` : ''}
@@ -1273,6 +1281,14 @@ export function generarHtmlPublicoBoletin(boletin: BoletinSemanal): string {
       text-transform: uppercase;
       letter-spacing: 0.02em;
     }
+    .day-card-header.festivo-header {
+      background: linear-gradient(135deg, #022c5e 0%, #034EA2 60%, #007DC5 100%);
+      border-bottom: 2.5px solid #ED145B;
+    }
+    .day-count-badge.festivo {
+      background: #ED145B;
+      color: #ffffff;
+    }
     .day-count-badge {
       background: #ffffff;
       color: #034EA2;
@@ -1287,6 +1303,77 @@ export function generarHtmlPublicoBoletin(boletin: BoletinSemanal): string {
       align-items: center;
       justify-content: center;
       box-shadow: 0 2px 4px rgba(0, 0, 0, 0.15);
+    }
+    .tabla-apoyo-container {
+      width: 100%;
+      overflow-x: auto;
+      border: 1px solid #cbd5e1;
+      border-radius: 10px;
+    }
+    .tabla-apoyo-container table {
+      min-width: 660px;
+      margin: 0;
+      border: none;
+    }
+    .cards-apoyo-movil {
+      display: none;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .card-apoyo-item {
+      background: #f8fafc;
+      border: 1px solid #cbd5e1;
+      border-radius: 10px;
+      padding: 14px;
+    }
+    .card-apoyo-head {
+      border-bottom: 1px solid #e2e8f0;
+      padding-bottom: 8px;
+      margin-bottom: 10px;
+    }
+    .card-apoyo-badge {
+      background: #034EA2;
+      color: #ffffff;
+      font-size: 10px;
+      font-weight: 800;
+      text-transform: uppercase;
+      padding: 2px 8px;
+      border-radius: 4px;
+      display: inline-block;
+      margin-bottom: 4px;
+    }
+    .card-apoyo-nombre {
+      font-size: 14px;
+      font-weight: 800;
+      color: #0f172a;
+    }
+    .card-apoyo-days {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .day-row-movil {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      background: #ffffff;
+      border: 1px solid #e2e8f0;
+      border-radius: 6px;
+      padding: 6px 10px;
+      font-size: 12px;
+    }
+    .day-row-movil span {
+      font-weight: 700;
+      color: #034EA2;
+    }
+    .day-row-movil strong {
+      font-family: var(--font-sans);
+      font-variant-numeric: tabular-nums;
+      color: #334155;
+    }
+    @media (max-width: 640px) {
+      .cards-apoyo-movil { display: flex; }
+      .tabla-apoyo-desktop { display: none; }
     }
     .day-badge-hoy {
       background: #ED145B;
@@ -1389,7 +1476,24 @@ export function generarHtmlPublicoBoletin(boletin: BoletinSemanal): string {
       color: #475569;
       display: flex;
       flex-wrap: wrap;
+      align-items: center;
       gap: 8px;
+    }
+    .meta-item {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+    }
+    .ico-meta {
+      display: inline-block;
+      vertical-align: middle;
+      flex-shrink: 0;
+    }
+    .ico-resp {
+      color: #034EA2;
+    }
+    .ico-lugar {
+      color: #007DC5;
     }
     .sep { color: #cbd5e1; }
     .tabla-moderna {
@@ -1538,7 +1642,8 @@ export function generarHtmlPublicoBoletin(boletin: BoletinSemanal): string {
       list-style: none;
       cursor: pointer;
       padding: 16px 20px;
-      background: linear-gradient(90deg, #f8fafc 0%, #f0f9ff 100%);
+      background: linear-gradient(90deg, #0F223D 0%, #034EA2 50%, #007DC5 100%);
+      color: #ffffff;
       display: flex;
       justify-content: space-between;
       align-items: center;
@@ -1546,14 +1651,14 @@ export function generarHtmlPublicoBoletin(boletin: BoletinSemanal): string {
       flex-wrap: wrap;
       user-select: none;
       border-bottom: 1px solid transparent;
-      transition: background 0.15s ease;
+      transition: opacity 0.15s ease;
     }
     .calendario-summary::-webkit-details-marker { display: none; }
     .calendario-details[open] .calendario-summary {
-      border-bottom-color: #dbe4f0;
+      border-bottom-color: rgba(255, 255, 255, 0.2);
     }
     .calendario-summary:hover {
-      background: linear-gradient(90deg, #f1f5f9 0%, #e0f2fe 100%);
+      opacity: 0.95;
     }
     .cal-summary-left {
       display: flex;
@@ -1564,12 +1669,12 @@ export function generarHtmlPublicoBoletin(boletin: BoletinSemanal): string {
       width: 6px;
       height: 28px;
       border-radius: 999px;
-      background: var(--vf-blue-bright);
+      background: #007DC5;
       flex-shrink: 0;
     }
     .cal-summary-sub {
       font-size: 11.5px;
-      color: #64748b;
+      color: #e0f2fe;
       margin-top: 2px;
       font-weight: 500;
     }
@@ -1579,25 +1684,26 @@ export function generarHtmlPublicoBoletin(boletin: BoletinSemanal): string {
       gap: 10px;
     }
     .cal-periodo-badge {
-      background: #e0f2fe;
-      border: 1px solid #bae6fd;
-      color: var(--vf-blue-deep);
+      background: rgba(255, 255, 255, 0.2);
+      border: 1px solid rgba(255, 255, 255, 0.35);
+      color: #ffffff;
       font-size: 11px;
       font-weight: 800;
-      padding: 5px 11px;
-      border-radius: 8px;
+      padding: 5px 12px;
+      border-radius: 999px;
       letter-spacing: 0.02em;
     }
     .cal-toggle-pill {
-      background: var(--vf-blue-bright);
-      color: #ffffff;
+      background: #ffffff;
+      color: #034EA2;
       font-size: 11px;
-      font-weight: 700;
-      padding: 5px 12px;
-      border-radius: 8px;
+      font-weight: 800;
+      padding: 6px 14px;
+      border-radius: 999px;
       display: inline-flex;
       align-items: center;
       gap: 6px;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
     }
     .calendario-details[open] .cal-toggle-text-closed { display: none; }
     .calendario-details:not([open]) .cal-toggle-text-open { display: none; }
@@ -1731,8 +1837,8 @@ export function generarHtmlPublicoBoletin(boletin: BoletinSemanal): string {
           <div class="acciones-top" style="margin-top: 10px; justify-content: flex-end;">
             <button id="btn-vista-grafica" class="btn-modo activo" onclick="cambiarVista('grafica')">Vista Gráfica</button>
             <button id="btn-vista-tabla" class="btn-modo" onclick="cambiarVista('tabla')">Vista Tabla</button>
-            <button class="btn-imprimir" onclick="window.print()">Imprimir</button>
-            <button class="btn-imprimir" style="background: var(--vf-blue-deep);" onclick="window.print()">Guardar PDF</button>
+            <button class="btn-imprimir" onclick="window.print()" title="Abrir cuadro de impresión">Imprimir</button>
+            <button class="btn-imprimir" id="btn-descargar-pdf-directo" style="background: #034EA2;" onclick="descargarPdfDirectoHtml()" title="Descargar archivo PDF directamente con colores y gráficos completos">Descargar PDF</button>
           </div>
         </div>
       </div>
@@ -1915,7 +2021,7 @@ export function generarHtmlPublicoBoletin(boletin: BoletinSemanal): string {
         </ul>
       </div>
 
-      <details class="calendario-details">
+      <details class="calendario-details" open>
         <summary class="calendario-summary">
           <div class="cal-summary-left">
             <div class="cal-bar-accent"></div>
@@ -1986,33 +2092,59 @@ export function generarHtmlPublicoBoletin(boletin: BoletinSemanal): string {
           <h3 class="subtitulo-seccion">Horarios del Personal de Apoyo, Auxiliares y Seguridad</h3>
           <span class="sec-counter">Lunes a Viernes</span>
         </div>
-        <table class="tabla-moderna">
-          <thead>
-            <tr>
-              <th>Funcionario / Rol</th>
-              <th>Lunes</th>
-              <th>Martes</th>
-              <th>Miércoles</th>
-              <th>Jueves</th>
-              <th>Viernes</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${boletin.horariosApoyo
-              .map(
-                (h) => `
+
+        <!-- VISTA MÓVIL: TARJETAS VERTICALES POR FUNCIONARIO (SIN CORTE) -->
+        <div class="cards-apoyo-movil">
+          ${boletin.horariosApoyo
+            .map(
+              (h) => `
+            <div class="card-apoyo-item">
+              <div class="card-apoyo-head">
+                <span class="card-apoyo-badge">${escaparHtml(h.rol)}</span>
+                <div class="card-apoyo-nombre">${escaparHtml(h.nombre)}</div>
+              </div>
+              <div class="card-apoyo-days">
+                <div class="day-row-movil"><span>Lunes:</span><strong>${escaparHtml(h.lunes)}</strong></div>
+                <div class="day-row-movil"><span>Martes:</span><strong>${escaparHtml(h.martes)}</strong></div>
+                <div class="day-row-movil"><span>Miércoles:</span><strong>${escaparHtml(h.miercoles)}</strong></div>
+                <div class="day-row-movil"><span>Jueves:</span><strong>${escaparHtml(h.jueves)}</strong></div>
+                <div class="day-row-movil"><span>Viernes:</span><strong>${escaparHtml(h.viernes)}</strong></div>
+              </div>
+            </div>`
+            )
+            .join('')}
+        </div>
+
+        <!-- VISTA TABLET / ESCRITORIO: TABLA CON SCROLL GARANTIZADO MIN-WIDTH -->
+        <div class="tabla-apoyo-container tabla-apoyo-desktop">
+          <table class="tabla-moderna">
+            <thead>
               <tr>
-                <td><strong style="color: #034EA2;">${escaparHtml(h.rol)}</strong><br/>${escaparHtml(h.nombre)}</td>
-                <td class="mono">${escaparHtml(h.lunes)}</td>
-                <td class="mono">${escaparHtml(h.martes)}</td>
-                <td class="mono">${escaparHtml(h.miercoles)}</td>
-                <td class="mono">${escaparHtml(h.jueves)}</td>
-                <td class="mono">${escaparHtml(h.viernes)}</td>
-              </tr>`
-              )
-              .join('')}
-          </tbody>
-        </table>
+                <th>Funcionario / Rol</th>
+                <th>Lunes</th>
+                <th>Martes</th>
+                <th>Miércoles</th>
+                <th>Jueves</th>
+                <th>Viernes</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${boletin.horariosApoyo
+                .map(
+                  (h) => `
+                <tr>
+                  <td><strong style="color: #034EA2;">${escaparHtml(h.rol)}</strong><br/>${escaparHtml(h.nombre)}</td>
+                  <td class="mono">${escaparHtml(h.lunes)}</td>
+                  <td class="mono">${escaparHtml(h.martes)}</td>
+                  <td class="mono">${escaparHtml(h.miercoles)}</td>
+                  <td class="mono">${escaparHtml(h.jueves)}</td>
+                  <td class="mono">${escaparHtml(h.viernes)}</td>
+                </tr>`
+                )
+                .join('')}
+            </tbody>
+          </table>
+        </div>
       </div>
 
       <div class="firmas-grid">
@@ -2078,6 +2210,45 @@ export function generarHtmlPublicoBoletin(boletin: BoletinSemanal): string {
         } catch (e) {}
       }
     });
+
+    function descargarPdfDirectoHtml() {
+      var btn = document.getElementById('btn-descargar-pdf-directo');
+      var textoPrevio = btn ? btn.innerText : 'Descargar PDF';
+      if (btn) btn.innerText = 'Generando PDF...';
+
+      function descargarConHtml2Pdf() {
+        var element = document.querySelector('.contenedor');
+        var opt = {
+          margin:       [6, 6, 6, 6],
+          filename:     '${escaparHtml(nombreArchivoPdf)}',
+          image:        { type: 'jpeg', quality: 0.98 },
+          html2canvas:  { scale: 2, useCORS: true, logging: false },
+          jsPDF:        { unit: 'mm', format: 'letter', orientation: 'portrait' }
+        };
+        if (window.html2pdf) {
+          window.html2pdf().set(opt).from(element).save().then(function() {
+            if (btn) btn.innerText = textoPrevio;
+          }).catch(function(err) {
+            console.error(err);
+            if (btn) btn.innerText = textoPrevio;
+            window.print();
+          });
+        }
+      }
+
+      if (window.html2pdf) {
+        descargarConHtml2Pdf();
+      } else {
+        var script = document.createElement('script');
+        script.src = 'https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js';
+        script.onload = descargarConHtml2Pdf;
+        script.onerror = function() {
+          if (btn) btn.innerText = textoPrevio;
+          window.print();
+        };
+        document.head.appendChild(script);
+      }
+    }
   </script>
 </body>
 </html>`;

@@ -34,7 +34,7 @@ export const GuiaDespliegueNas: React.FC<GuiaDespliegueNasProps> = ({ boletin })
 
   return (
     <div className="space-y-6">
-      <section className="bg-linear-to-r from-[#022c5e] via-[#034EA2] to-[#007DC5] text-white rounded-2xl border border-[#034EA2] p-6 sm:p-8 space-y-6 shadow-xs">
+      <section className="bg-gradient-to-r from-[#022c5e] via-[#034EA2] to-[#007DC5] text-white rounded-2xl border border-[#034EA2] p-6 sm:p-8 space-y-6 shadow-xs">
         <div className="border-b border-white/15 pb-5 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
           <div className="flex flex-col sm:flex-row sm:items-center gap-4">
             <div className="bg-white px-4 py-2.5 rounded-xl inline-flex items-center self-start shrink-0">

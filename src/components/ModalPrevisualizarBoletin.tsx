@@ -5,10 +5,12 @@ import {
   Monitor,
   Printer,
   Smartphone,
+  Download,
   X,
 } from 'lucide-react';
 import { BoletinSemanal } from '../types/notiprofes';
 import { generarHtmlPublicoBoletin } from '../utils/boletinLogic';
+import { descargarPdfBoletinDirecto } from '../services/googleDrivePdfService';
 
 interface ModalPrevisualizarBoletinProps {
   abierto: boolean;
@@ -102,6 +104,17 @@ export const ModalPrevisualizarBoletin: React.FC<ModalPrevisualizarBoletinProps>
                 <span className="text-[11px]">Móvil</span>
               </button>
             </div>
+
+            {/* Descargar PDF directo */}
+            <button
+              type="button"
+              onClick={() => descargarPdfBoletinDirecto(boletin)}
+              title="Descargar archivo PDF directamente con todos los colores"
+              className="px-3 py-1.5 rounded-xl bg-[#034EA2] hover:bg-[#007DC5] text-white text-xs font-bold flex items-center gap-1.5 shadow-sm transition-all cursor-pointer whitespace-nowrap"
+            >
+              <Download className="w-3.5 h-3.5 text-sky-200" />
+              <span>Descargar PDF</span>
+            </button>
 
             {/* Imprimir documento renderizado */}
             <button

@@ -614,3 +614,20 @@ export async function sincronizarPdfBoletinEnGoogleDrive(
     sincronizadoPor: autorNombre,
   };
 }
+
+/**
+ * Descarga el archivo PDF del boletín directamente al dispositivo local del usuario
+ * sin abrir el diálogo de impresión de Windows/navegador.
+ */
+export function descargarPdfBoletinDirecto(boletin: BoletinSemanal): void {
+  const version = boletin.drivePdfInfo?.version || 1;
+  const { blob, fileName } = generarPdfBoletinOficial(boletin, version);
+  const urlDescarga = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = urlDescarga;
+  a.download = fileName;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(urlDescarga), 1000);
+}

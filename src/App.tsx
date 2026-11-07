@@ -18,6 +18,7 @@ import {
   ShieldCheck,
   UserCheck,
   Users,
+  Download,
   X,
 } from 'lucide-react';
 import { BOLETIN_40_SEED } from './data/seedNotiprofes40';
@@ -40,6 +41,7 @@ import { ModalPrevisualizarBoletin } from './components/ModalPrevisualizarBoleti
 import { ModalPublicacionNube } from './components/ModalPublicacionNube';
 import { DropdownPersonalizado } from './components/DropdownPersonalizado';
 import { calcularEstadoCalendarioBoletin } from './utils/calendarioEscolar2026';
+import { descargarPdfBoletinDirecto } from './services/googleDrivePdfService';
 
 type VistaPrincipal = 'boletin' | 'editor' | 'nas';
 
@@ -477,7 +479,7 @@ export default function App() {
   // Pantalla de Login Obligatoria para el Panel de Coordinación (acceso protegido)
   if (!usuarioDirectivo || !tokenSesion) {
     return (
-      <div className="min-h-screen bg-linear-to-br from-[#0F223D] via-[#034EA2] to-[#007DC5] flex flex-col justify-between p-4 sm:p-6 select-none">
+      <div className="min-h-screen bg-gradient-to-br from-[#0F223D] via-[#034EA2] to-[#007DC5] flex flex-col justify-between p-4 sm:p-6 select-none">
         <header className="flex items-center justify-between max-w-lg w-full mx-auto py-2 text-white">
           <div className="flex items-center gap-2">
             <ShieldCheck className="w-5 h-5 text-amber-400" />
@@ -529,7 +531,7 @@ export default function App() {
         className="no-print sticky top-0 z-30 bg-white/95 backdrop-blur-md border-b border-slate-200/90 shadow-2xs flex items-stretch"
       >
         {/* Encabezado del Menú Lateral: Permanente, NUNCA se oculta */}
-        <div className="shrink-0 border-r border-slate-200/90 bg-linear-to-b from-sky-50/70 to-white flex flex-col justify-center px-3 sm:px-4 select-none w-auto sm:w-60 lg:w-68">
+        <div className="shrink-0 border-r border-slate-200/90 bg-gradient-to-b from-sky-50/70 to-white flex flex-col justify-center px-3 sm:px-4 select-none w-auto sm:w-60 lg:w-68">
           {/* Vista móvil compacta (para pantallas muy pequeñas) */}
           <div className="sm:hidden flex flex-col items-start justify-center gap-0.5">
             <div className="flex items-center gap-1 text-[#034EA2] font-display font-black text-xs">
@@ -644,12 +646,12 @@ export default function App() {
 
               <button
                 type="button"
-                onClick={() => window.print()}
-                title="Imprimir boletín oficial"
-                className="px-2.5 py-1 rounded-lg border border-slate-300 bg-white text-slate-700 hover:text-[#034EA2] hover:bg-slate-50 transition-colors cursor-pointer inline-flex items-center gap-1.5 text-xs font-semibold shadow-2xs"
+                onClick={() => descargarPdfBoletinDirecto(boletin)}
+                title="Descargar PDF oficial con colores completos"
+                className="px-2.5 py-1 rounded-lg border border-sky-300 bg-sky-50 text-[#034EA2] hover:bg-sky-100 transition-colors cursor-pointer inline-flex items-center gap-1.5 text-xs font-bold shadow-2xs"
               >
-                <Printer className="w-3.5 h-3.5 text-slate-500" />
-                <span>Imprimir</span>
+                <Download className="w-3.5 h-3.5 text-[#007DC5]" />
+                <span>Descargar PDF</span>
               </button>
 
               <button
