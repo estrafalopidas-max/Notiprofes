@@ -235,6 +235,7 @@ export const PanelEditorColaborativo: React.FC<PanelEditorColaborativoProps> = (
 
   const [frasePedagogicaEdit, setFrasePedagogicaEdit] = useState(boletin.frasePedagogica || '');
   const [autorFraseEdit, setAutorFraseEdit] = useState(boletin.autorFrase || '');
+  const [reflexionColapsada, setReflexionColapsada] = useState<boolean>(true);
 
   const [diasColapsados, setDiasColapsados] = useState<Record<string, boolean>>({});
   const [filtroDiaEditor, setFiltroDiaEditor] = useState<string>('todos');
@@ -925,7 +926,7 @@ export const PanelEditorColaborativo: React.FC<PanelEditorColaborativoProps> = (
       {/* SECCIÓN 1: PROGRAMACIÓN SEMANAL */}
       {seccion === 'semanal' && (
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-          <div className="lg:col-span-5 space-y-6">
+          <div className="lg:col-span-5 space-y-4 lg:sticky lg:top-24 lg:max-h-[calc(100vh-7rem)] lg:overflow-y-auto lg:pr-1">
             <form
               onSubmit={handleAgregarActividad}
               className="bg-white border border-slate-200/90 rounded-xl p-6 space-y-4"
@@ -1045,54 +1046,95 @@ export const PanelEditorColaborativo: React.FC<PanelEditorColaborativoProps> = (
               </button>
             </form>
 
-            <div className="bg-white border border-slate-200/90 rounded-xl p-6 space-y-4">
-              <div className="border-b border-slate-100 pb-3">
-                <h2 className="text-base font-display font-bold text-slate-900 flex items-center gap-2">
-                  <Sparkles className="w-4 h-4 text-[#ED145B]" />
-                  Reflexión Pedagógica Semanal
-                </h2>
-                <p className="text-xs text-slate-500 mt-0.5">
-                  Cambie la cita o mensaje inspirador que aparece destacado en el boletín.
-                </p>
+            <div className="bg-white border border-slate-200/90 rounded-xl p-5 space-y-3 shadow-2xs">
+              <div className="border-b border-slate-100 pb-2.5 flex items-center justify-between">
+                <div>
+                  <h2 className="text-sm font-display font-bold text-slate-900 flex items-center gap-2">
+                    <Sparkles className="w-4 h-4 text-[#ED145B]" />
+                    Reflexión Pedagógica Semanal
+                  </h2>
+                  <p className="text-[11px] text-slate-500 mt-0.5">
+                    Cita o mensaje institucional destacado del boletín.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setReflexionColapsada((prev) => !prev)}
+                  className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-500 hover:text-slate-800 transition-colors cursor-pointer"
+                  title={reflexionColapsada ? 'Editar reflexión pedagógica' : 'Minimizar reflexión'}
+                  aria-label={reflexionColapsada ? 'Editar reflexión pedagógica' : 'Minimizar reflexión'}
+                >
+                  {reflexionColapsada ? (
+                    <ChevronDown className="w-4 h-4" />
+                  ) : (
+                    <ChevronUp className="w-4 h-4" />
+                  )}
+                </button>
               </div>
 
-              <form onSubmit={handleActualizarReflexion} className="space-y-3">
-                <div>
-                  <label htmlFor="input-frase-pedagogica" className="block text-xs font-semibold text-slate-700 mb-1">
-                    Cita / Reflexión:
-                  </label>
-                  <textarea
-                    id="input-frase-pedagogica"
-                    rows={3}
-                    value={frasePedagogicaEdit}
-                    onChange={(e) => setFrasePedagogicaEdit(e.target.value)}
-                    placeholder="Escriba la reflexión pedagógica..."
-                    className="w-full rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs sm:text-sm text-slate-800 focus:outline-none focus:border-[#007DC5] focus:ring-1 focus:ring-[#007DC5]/20 transition-all"
-                    required
-                  />
-                </div>
-
-                <div>
-                  <label htmlFor="input-autor-frase" className="block text-xs font-semibold text-slate-700 mb-1">
-                    Autor / Referencia:
-                  </label>
-                  <input
-                    id="input-autor-frase"
-                    type="text"
-                    value={autorFraseEdit}
-                    onChange={(e) => setAutorFraseEdit(e.target.value)}
-                    placeholder="Ej: Equipo Directivo / Paulo Freire"
-                    className="w-full rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs sm:text-sm text-slate-800 focus:outline-none focus:border-[#007DC5] focus:ring-1 focus:ring-[#007DC5]/20 transition-all"
-                  />
-                </div>
-
-                <button
-                  type="submit"
-                  className="w-full py-2.5 px-4 text-xs font-semibold text-white bg-[#007DC5] hover:bg-[#034EA2] rounded-lg transition-colors"
+              {reflexionColapsada ? (
+                <div
+                  onClick={() => setReflexionColapsada(false)}
+                  className="p-3 bg-slate-50 hover:bg-sky-50/50 rounded-lg border border-slate-100 cursor-pointer text-xs transition-colors group"
                 >
-                  Actualizar Reflexión Pedagógica
-                </button>
-              </form>
+                  <p className="text-slate-700 italic line-clamp-2 leading-relaxed">
+                    «{frasePedagogicaEdit || 'Sin reflexión configurada'}»
+                  </p>
+                  <div className="text-[11px] font-bold text-[#034EA2] mt-1.5 flex items-center justify-between">
+                    <span>— {autorFraseEdit || 'Equipo Directivo'}</span>
+                    <span className="text-[10px] text-slate-400 group-hover:text-[#034EA2] font-semibold underline">
+                      Editar
+                    </span>
+                  </div>
+                </div>
+              ) : (
+                <form onSubmit={handleActualizarReflexion} className="space-y-3">
+                  <div>
+                    <label htmlFor="input-frase-pedagogica" className="block text-xs font-semibold text-slate-700 mb-1">
+                      Cita / Reflexión:
+                    </label>
+                    <textarea
+                      id="input-frase-pedagogica"
+                      rows={3}
+                      value={frasePedagogicaEdit}
+                      onChange={(e) => setFrasePedagogicaEdit(e.target.value)}
+                      placeholder="Escriba la reflexión pedagógica..."
+                      className="w-full rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs sm:text-sm text-slate-800 focus:outline-none focus:border-[#007DC5] focus:ring-1 focus:ring-[#007DC5]/20 transition-all"
+                      required
+                    />
+                  </div>
+
+                  <div>
+                    <label htmlFor="input-autor-frase" className="block text-xs font-semibold text-slate-700 mb-1">
+                      Autor / Referencia:
+                    </label>
+                    <input
+                      id="input-autor-frase"
+                      type="text"
+                      value={autorFraseEdit}
+                      onChange={(e) => setAutorFraseEdit(e.target.value)}
+                      placeholder="Ej: Equipo Directivo / Paulo Freire"
+                      className="w-full rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs sm:text-sm text-slate-800 focus:outline-none focus:border-[#007DC5] focus:ring-1 focus:ring-[#007DC5]/20 transition-all"
+                    />
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="submit"
+                      className="flex-1 py-2 px-3 text-xs font-semibold text-white bg-[#007DC5] hover:bg-[#034EA2] rounded-lg transition-colors cursor-pointer"
+                    >
+                      Actualizar Reflexión
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setReflexionColapsada(true)}
+                      className="py-2 px-3 text-xs text-slate-600 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors cursor-pointer"
+                    >
+                      Minimizar
+                    </button>
+                  </div>
+                </form>
+              )}
             </div>
           </div>
 
@@ -1222,6 +1264,23 @@ export const PanelEditorColaborativo: React.FC<PanelEditorColaborativoProps> = (
                       </button>
 
                       <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setDiaSeleccionado(dia.id);
+                            const inputEl = document.getElementById('input-titulo-actividad');
+                            if (inputEl) {
+                              inputEl.focus();
+                              inputEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                            }
+                          }}
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-white bg-[#007DC5] hover:bg-[#034EA2] rounded-lg shadow-2xs transition-colors cursor-pointer"
+                          title={`Agregar actividad para ${dia.fechaTexto}`}
+                        >
+                          <Plus className="w-3.5 h-3.5" />
+                          <span>+ Actividad</span>
+                        </button>
+
                         <button
                           type="button"
                           onClick={() => {
