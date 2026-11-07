@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import http from 'node:http';
@@ -2504,17 +2505,22 @@ async function iniciarServidor() {
         return;
       }
 
-      if (!process.env.GEMINI_API_KEY) {
+      const apiKey =
+        process.env.GEMINI_API_KEY ||
+        process.env.GOOGLE_API_KEY ||
+        process.env.API_KEY;
+
+      if (!apiKey) {
         res.status(503).json({
           error:
-            'La variable de entorno GEMINI_API_KEY no está configurada en este servidor. Puede usar el botón «Generar Plantilla Base + Festivos» para crear el calendario sin IA y ajustar las fechas manualmente.',
+            'La variable de entorno GEMINI_API_KEY no está configurada en este servidor. Puede configurar GEMINI_API_KEY en las variables de entorno de su contenedor Docker en TrueNAS, o usar el botón «Generar Plantilla Base + Festivos» para crear el calendario de forma inmediata sin IA.',
         });
         return;
       }
 
       try {
         const ai = new GoogleGenAI({
-          apiKey: process.env.GEMINI_API_KEY,
+          apiKey,
           httpOptions: {
             headers: {
               'User-Agent': 'aistudio-build',

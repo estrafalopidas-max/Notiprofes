@@ -1658,27 +1658,83 @@ export const PanelEditorColaborativo: React.FC<PanelEditorColaborativoProps> = (
                     <label className="block text-xs font-semibold text-slate-700 mb-1.5">
                       1. Subir PDF de la Resolución Oficial (Alcaldía de Medellín):
                     </label>
-                    <label
-                      htmlFor="file-decreto-pdf"
-                      className="flex flex-col items-center justify-center gap-2 border-2 border-dashed border-sky-300 hover:border-[#007DC5] bg-sky-50/50 hover:bg-sky-50 rounded-xl p-4 text-center cursor-pointer transition-colors"
-                    >
-                      <Upload className="w-5 h-5 text-[#007DC5]" />
-                      <div className="text-xs font-bold text-[#034EA2]">
-                        {archivoDecretoNombre
-                          ? `Archivo cargado: ${archivoDecretoNombre}`
-                          : 'Seleccionar archivo PDF de la Resolución (.pdf)'}
+                    {archivoDecretoNombre ? (
+                      <div className="relative border-2 border-amber-400 bg-amber-50/90 rounded-xl p-4 shadow-xs text-amber-950 transition-all animate-in fade-in zoom-in-95 duration-150">
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="flex items-center gap-2.5 min-w-0">
+                            <div className="w-9 h-9 rounded-xl bg-amber-400/30 border border-amber-400/80 text-amber-800 flex items-center justify-center shrink-0">
+                              <FileText className="w-5 h-5 text-amber-700" />
+                            </div>
+                            <div className="min-w-0">
+                              <div className="flex items-center gap-1.5 flex-wrap">
+                                <span className="text-xs font-extrabold text-amber-950 truncate max-w-[180px] sm:max-w-[240px]">
+                                  {archivoDecretoNombre}
+                                </span>
+                                <span className="px-2 py-0.5 rounded-md bg-amber-200/80 text-amber-900 border border-amber-300 text-[10px] font-bold inline-flex items-center gap-1">
+                                  <Check className="w-3 h-3 text-amber-800" />
+                                  <span>Cargado con éxito</span>
+                                </span>
+                              </div>
+                              <p className="text-[11px] text-amber-900/80 mt-0.5">
+                                Documento listo para extracción por IA · Resolución {anioDecreto}
+                              </p>
+                            </div>
+                          </div>
+
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setArchivoDecretoNombre('');
+                              setArchivoDecretoBase64('');
+                            }}
+                            className="p-1 rounded-lg text-amber-700 hover:text-amber-950 hover:bg-amber-200/60 transition-colors cursor-pointer shrink-0"
+                            title="Quitar archivo cargado"
+                            aria-label="Quitar archivo cargado"
+                          >
+                            <X className="w-4 h-4" />
+                          </button>
+                        </div>
+
+                        <div className="mt-2.5 pt-2 border-t border-amber-200/80 flex items-center justify-between text-[11px]">
+                          <label
+                            htmlFor="file-decreto-pdf"
+                            className="font-bold text-amber-800 hover:text-amber-950 underline cursor-pointer"
+                          >
+                            Cambiar archivo PDF
+                          </label>
+                          <span className="text-amber-700/80 font-mono text-[10px]">
+                            {archivoDecretoMime}
+                          </span>
+                          <input
+                            id="file-decreto-pdf"
+                            type="file"
+                            accept=".pdf,application/pdf,.txt,text/plain"
+                            onChange={handleSeleccionarArchivoDecreto}
+                            className="hidden"
+                          />
+                        </div>
                       </div>
-                      <span className="text-[11px] text-slate-500">
-                        Procesamiento multimodal directo en el servidor (máx. 10 MB)
-                      </span>
-                      <input
-                        id="file-decreto-pdf"
-                        type="file"
-                        accept=".pdf,application/pdf,.txt,text/plain"
-                        onChange={handleSeleccionarArchivoDecreto}
-                        className="hidden"
-                      />
-                    </label>
+                    ) : (
+                      <label
+                        htmlFor="file-decreto-pdf"
+                        className="flex flex-col items-center justify-center gap-2 border-2 border-dashed border-sky-300 hover:border-[#007DC5] bg-sky-50/50 hover:bg-sky-50 rounded-xl p-4 text-center cursor-pointer transition-colors"
+                      >
+                        <Upload className="w-5 h-5 text-[#007DC5]" />
+                        <div className="text-xs font-bold text-[#034EA2]">
+                          Seleccionar archivo PDF de la Resolución (.pdf)
+                        </div>
+                        <span className="text-[11px] text-slate-500">
+                          Procesamiento multimodal directo en el servidor (máx. 10 MB)
+                        </span>
+                        <input
+                          id="file-decreto-pdf"
+                          type="file"
+                          accept=".pdf,application/pdf,.txt,text/plain"
+                          onChange={handleSeleccionarArchivoDecreto}
+                          className="hidden"
+                        />
+                      </label>
+                    )}
                   </div>
                 </div>
 
