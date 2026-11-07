@@ -131,7 +131,7 @@ export default function App() {
   const tokenRef = useRef<string | null>(null);
 
   const headerRef = useRef<HTMLElement>(null);
-  const [alturaHeader, setAlturaHeader] = useState<number>(140);
+  const [alturaHeader, setAlturaHeader] = useState<number>(96);
 
   // Fecha actual del sistema formateada para el encabezado del menú lateral
   const fechaSistemaTexto = useMemo(() => {
@@ -177,7 +177,7 @@ export default function App() {
       observer.disconnect();
       window.removeEventListener('resize', actualizar);
     };
-  }, []);
+  }, [usuarioDirectivo, tokenSesion]);
 
   const cargarBoletinesServidor = useCallback(async (idEspecifico?: string) => {
     if (idEspecifico) {
@@ -546,112 +546,143 @@ export default function App() {
       style={{ '--header-h': `${alturaHeader}px` } as React.CSSProperties}
       className="min-h-screen flex flex-col bg-[#F4F7FB] text-[#0F172A]"
     >
-      {/* BARRA SUPERIOR UNIFICADA: NAVBAR PRINCIPAL */}
+      {/* BARRA SUPERIOR UNIFICADA: ENCABEZADO DEL MENÚ LATERAL + NAVBAR PRINCIPAL (MISMA ALTURA Y MEDIDA) */}
       <header
         ref={headerRef}
-        className="no-print sticky top-0 z-30 bg-white/95 backdrop-blur-md border-b border-slate-200/90 shadow-2xs flex items-center justify-between px-4 sm:px-6 py-2 gap-4 min-w-0"
+        className="no-print sticky top-0 z-30 bg-white/95 backdrop-blur-md border-b border-slate-200/90 shadow-2xs flex items-stretch min-w-0"
       >
-        {/* Izquierda: Menú móvil (en pantallas pequeñas) + Escudo Institucional */}
-        <div className="flex items-center gap-3 shrink-0">
-          <button
-            type="button"
-            onClick={() => {
-              setMenuMovilAbierto(true);
-              setSidebarColapsado(false);
-            }}
-            className="lg:hidden p-2 rounded-lg text-slate-600 hover:text-[#034EA2] hover:bg-slate-100 cursor-pointer transition-colors"
-            aria-label="Abrir menú principal"
-            title="Abrir menú de navegación"
-          >
-            <Menu className="w-5 h-5" />
-          </button>
+        {/* ENCABEZADO DEL MENÚ LATERAL: A la misma altura y medida del navbar, nunca se contrae ni se oculta */}
+        <div className="w-56 sm:w-64 lg:w-68 shrink-0 px-3 sm:px-3.5 py-2 border-r border-slate-200/90 bg-gradient-to-b from-sky-50/85 via-sky-50/35 to-white flex flex-col justify-center select-none">
+          <div className="flex items-center justify-between gap-1">
+            <div className="flex items-center gap-1.5 text-[#034EA2] font-display font-extrabold text-[11px] sm:text-xs tracking-wider">
+              <Calendar className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-[#007DC5] shrink-0" />
+              <span>
+                {estadoCalendario.numeroPeriodo}
+                <sup className="text-[10px] font-extrabold lowercase ml-0.5">
+                  {estadoCalendario.ordinalSup}
+                </sup>{' '}
+                PERIODO
+              </span>
+            </div>
+          </div>
 
-          <a
-            href="#inicio"
-            onClick={(e) => {
-              e.preventDefault();
-              setVistaActiva('boletin');
-              emitirPresencia('Boletín Oficial');
-            }}
-            className="flex items-center group cursor-pointer py-0.5"
-            title="Institución Educativa Villa Flora · Ir al inicio"
-          >
-            <img
-              src="/public/assets/aistudio/Lab_2f0276da.png"
-              alt="Escudo Institución Educativa Villa Flora"
-              referrerPolicy="no-referrer"
-              className="h-[72px] sm:h-[84px] md:h-[96px] w-auto object-contain shrink-0 transition-transform duration-200 group-hover:scale-105 drop-shadow-xs"
-            />
-          </a>
+          <div className="mt-0.5 space-y-0.5">
+            <div className="text-sm sm:text-base lg:text-lg font-display font-black text-[#034EA2] tracking-tight leading-tight">
+              Edición Nº {boletin.numero}
+            </div>
+            <div className="text-[11px] sm:text-xs font-bold text-[#0F172A] leading-tight truncate">
+              {estadoCalendario.rangoSemanaFormateado}
+            </div>
+            <div className="text-[10px] sm:text-[11px] font-medium text-slate-500 leading-tight truncate">
+              {estadoCalendario.textoSemanaDePeriodo}
+            </div>
+          </div>
         </div>
 
-        {/* Derecha: MISMO DIV con el texto "NOTIPROFES DIGITAL" arriba y los botones inmediatamente debajo */}
-        <div className="flex flex-col items-end text-right shrink-0 ml-auto gap-1.5 min-w-0">
-          <a
-            href="#inicio"
-            onClick={(e) => {
-              e.preventDefault();
-              setVistaActiva('boletin');
-              emitirPresencia('Boletín Oficial');
-            }}
-            className="cursor-pointer group flex flex-col items-end text-right"
-          >
-            <h1 className="text-xl sm:text-2xl md:text-3xl font-display font-black uppercase tracking-tight text-[#034EA2] group-hover:text-[#007DC5] transition-colors leading-tight">
-              NOTIPROFES DIGITAL
-            </h1>
-            <p className="text-[11px] sm:text-xs font-medium text-slate-500 leading-tight mt-0.5 truncate max-w-[280px] sm:max-w-md md:max-w-xl">
-              Canal Oficial Docente, Directivo y Administrativo · I.E. Villa Flora
-            </p>
-          </a>
-
-          {/* Botones de acción en una sola fila protegida contra wrap (no se bajan nunca) */}
-          <div className="flex items-center justify-end gap-1.5 sm:gap-2 flex-nowrap shrink-0 overflow-x-auto max-w-full">
+        {/* NAVBAR PRINCIPAL: Misma altura que el encabezado del menú lateral */}
+        <div className="flex-1 flex items-center justify-between px-3 sm:px-6 py-2 gap-2 sm:gap-4 min-w-0">
+          {/* Izquierda del Navbar: Botón móvil + Escudo Institucional */}
+          <div className="flex items-center gap-2 sm:gap-3 shrink-0">
             <button
               type="button"
-              onClick={() => descargarPdfBoletinDirecto(boletin)}
-              title="Descargar PDF oficial con colores completos"
-              className="px-2.5 py-1 rounded-lg border border-sky-300 bg-sky-50 text-[#034EA2] hover:bg-sky-100 transition-colors cursor-pointer inline-flex items-center gap-1.5 text-xs font-bold shadow-2xs"
+              onClick={() => {
+                setMenuMovilAbierto(true);
+                setSidebarColapsado(false);
+              }}
+              className="lg:hidden p-2 rounded-lg text-slate-600 hover:text-[#034EA2] hover:bg-slate-100 cursor-pointer transition-colors"
+              aria-label="Abrir menú principal"
+              title="Abrir menú de navegación"
             >
-              <Download className="w-3.5 h-3.5 text-[#007DC5]" />
-              <span>Descargar PDF</span>
+              <Menu className="w-5 h-5" />
             </button>
 
-            <button
-              type="button"
-              onClick={handleCopiarUrlPublica}
-              className="px-2.5 py-1 rounded-lg border border-sky-200 bg-sky-50 text-[#034EA2] hover:bg-sky-100 transition-colors cursor-pointer inline-flex items-center gap-1.5 text-xs font-semibold shadow-2xs"
+            <a
+              href="#inicio"
+              onClick={(e) => {
+                e.preventDefault();
+                setVistaActiva('boletin');
+                emitirPresencia('Boletín Oficial');
+              }}
+              className="flex items-center group cursor-pointer py-0.5"
+              title="Institución Educativa Villa Flora · Ir al inicio"
             >
-              <Share2 className="w-3.5 h-3.5 text-[#007DC5]" />
-              <span>{copiadoHeader ? 'Enlace copiado' : 'Copiar enlace'}</span>
-            </button>
+              <img
+                src="/public/assets/aistudio/Lab_2f0276da.png"
+                alt="Escudo Institución Educativa Villa Flora"
+                referrerPolicy="no-referrer"
+                className="h-[64px] sm:h-[80px] md:h-[92px] w-auto object-contain shrink-0 transition-transform duration-200 group-hover:scale-105 drop-shadow-xs"
+              />
+            </a>
+          </div>
 
-            <button
-              type="button"
-              onClick={() => setModalPublicacionAbierto(true)}
-              className="inline-flex items-center gap-1.5 px-3 py-1 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg shadow-2xs transition-colors whitespace-nowrap cursor-pointer"
+          {/* Derecha del Navbar: Título NOTIPROFES DIGITAL y botones de acción */}
+          <div className="flex flex-col items-end text-right shrink-0 ml-auto gap-1.5 min-w-0">
+            <a
+              href="#inicio"
+              onClick={(e) => {
+                e.preventDefault();
+                setVistaActiva('boletin');
+                emitirPresencia('Boletín Oficial');
+              }}
+              className="cursor-pointer group flex flex-col items-end text-right"
             >
-              <ExternalLink className="w-3.5 h-3.5" />
-              <span>Publicar boletín</span>
-            </button>
+              <h1 className="text-lg sm:text-2xl md:text-3xl font-display font-black uppercase tracking-tight text-[#034EA2] group-hover:text-[#007DC5] transition-colors leading-tight">
+                NOTIPROFES DIGITAL
+              </h1>
+              <p className="text-[10px] sm:text-xs font-medium text-slate-500 leading-tight mt-0.5 truncate max-w-[200px] sm:max-w-md md:max-w-xl">
+                Canal Oficial Docente, Directivo y Administrativo · I.E. Villa Flora
+              </p>
+            </a>
+
+            {/* Botones de acción en una sola fila protegida contra wrap */}
+            <div className="flex items-center justify-end gap-1.5 sm:gap-2 flex-nowrap shrink-0 overflow-x-auto max-w-full">
+              <button
+                type="button"
+                onClick={() => descargarPdfBoletinDirecto(boletin)}
+                title="Descargar PDF oficial con colores completos"
+                className="px-2 sm:px-2.5 py-1 rounded-lg border border-sky-300 bg-sky-50 text-[#034EA2] hover:bg-sky-100 transition-colors cursor-pointer inline-flex items-center gap-1.5 text-[11px] sm:text-xs font-bold shadow-2xs whitespace-nowrap"
+              >
+                <Download className="w-3.5 h-3.5 text-[#007DC5]" />
+                <span>Descargar PDF</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={handleCopiarUrlPublica}
+                className="px-2 sm:px-2.5 py-1 rounded-lg border border-sky-200 bg-sky-50 text-[#034EA2] hover:bg-sky-100 transition-colors cursor-pointer inline-flex items-center gap-1.5 text-[11px] sm:text-xs font-semibold shadow-2xs whitespace-nowrap"
+              >
+                <Share2 className="w-3.5 h-3.5 text-[#007DC5]" />
+                <span>{copiadoHeader ? 'Enlace copiado' : 'Copiar enlace'}</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setModalPublicacionAbierto(true)}
+                className="inline-flex items-center gap-1.5 px-2.5 sm:px-3 py-1 text-[11px] sm:text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg shadow-2xs transition-colors whitespace-nowrap cursor-pointer"
+              >
+                <ExternalLink className="w-3.5 h-3.5" />
+                <span>Publicar boletín</span>
+              </button>
+            </div>
           </div>
         </div>
       </header>
 
-      {/* CUERPO INFERIOR: DRAWER DEL MENÚ LATERAL + CONTENIDO PRINCIPAL */}
+      {/* CUERPO INFERIOR: MENÚ LATERAL (UNIDO AL ENCABEZADO CON 0PX DE SEPARACIÓN) + CONTENIDO PRINCIPAL */}
       <div className="flex-1 flex min-w-0 relative">
-        {/* BACKDROP PARA DRAWER EN MÓVIL */}
+        {/* BACKDROP PARA EL MENÚ EN PANTALLAS PEQUEÑAS (DEBAJO DEL ENCABEZADO) */}
         {menuMovilAbierto && (
           <div
-            className="no-print fixed inset-0 z-30 bg-slate-900/40 backdrop-blur-xs lg:hidden transition-opacity"
+            className="no-print fixed inset-x-0 bottom-0 top-[var(--header-h,104px)] z-30 bg-slate-900/40 backdrop-blur-xs lg:hidden transition-opacity"
             onClick={() => setMenuMovilAbierto(false)}
             aria-hidden="true"
           />
         )}
 
-        {/* DRAWER DEL MENÚ LATERAL: EXCLUSIVAMENTE PARA LA NAVEGACIÓN */}
+        {/* MENÚ LATERAL: Unido directamente debajo de su encabezado; cuando se cierra solo se ven los íconos */}
         <aside
           aria-label="Menú de control lateral"
-          className={`no-print fixed inset-y-0 left-0 z-40 lg:sticky lg:top-[var(--header-h,95px)] lg:h-[calc(100vh-var(--header-h,95px))] bg-white border-r border-slate-200/90 flex flex-col justify-between transition-all duration-200 select-none ${
+          className={`no-print fixed left-0 top-[var(--header-h,104px)] h-[calc(100vh-var(--header-h,104px))] z-40 lg:sticky lg:top-[var(--header-h,104px)] lg:h-[calc(100vh-var(--header-h,104px))] shrink-0 bg-white border-r border-slate-200/90 flex flex-col justify-between transition-all duration-200 select-none ${
             sidebarColapsado ? 'lg:w-18' : 'lg:w-68'
           } ${
             menuMovilAbierto
@@ -659,77 +690,31 @@ export default function App() {
               : '-translate-x-full lg:translate-x-0'
           }`}
         >
-          {/* Encabezado de Edición y Periodo (Unificado con la barra lateral para 0px de espacio) */}
-          {!sidebarColapsado ? (
-            <div className="p-3.5 border-b border-slate-200/90 bg-gradient-to-b from-sky-50/80 via-sky-50/30 to-white shrink-0">
-              <div className="flex items-center justify-between gap-1">
-                <div className="flex items-center gap-1.5 text-[#034EA2] font-display font-extrabold text-xs tracking-wider">
-                  <Calendar className="w-4 h-4 text-[#007DC5] shrink-0" />
-                  <span>
-                    {estadoCalendario.numeroPeriodo}
-                    <sup className="text-[10px] font-extrabold lowercase ml-0.5">
-                      {estadoCalendario.ordinalSup}
-                    </sup>{' '}
-                    PERIODO
-                  </span>
-                </div>
-              </div>
-
-              <div className="mt-1 space-y-0.5">
-                <div className="text-base lg:text-lg font-display font-black text-[#034EA2] tracking-tight leading-tight">
-                  Edición Nº {boletin.numero}
-                </div>
-                <div className="text-xs font-bold text-[#0F172A] leading-tight truncate">
-                  {estadoCalendario.rangoSemanaFormateado}
-                </div>
-                <div className="text-[11px] font-medium text-slate-500 leading-tight truncate">
-                  {estadoCalendario.textoSemanaDePeriodo}
-                </div>
-              </div>
-            </div>
-          ) : (
-            <div
-              className="p-2.5 border-b border-slate-200/90 bg-sky-50/70 flex flex-col items-center justify-center text-center shrink-0"
-              title={`${estadoCalendario.numeroPeriodo}º PERIODO · Edición Nº ${boletin.numero}`}
-            >
-              <Calendar className="w-4 h-4 text-[#007DC5]" />
-              <span className="text-[10px] font-black text-[#034EA2] mt-0.5 leading-tight">
-                N° {boletin.numero}
-              </span>
-              <span className="text-[9px] font-bold text-slate-500">
-                {estadoCalendario.numeroPeriodo}P
-              </span>
-            </div>
-          )}
-
-          {/* Cabecera del Drawer: Muestra la fecha actual del sistema */}
-          <div className="px-3 py-2 border-b border-slate-200/80 bg-slate-50/80 flex items-center justify-between min-w-0 shrink-0">
-            {!sidebarColapsado ? (
+          {/* Cabecera del Drawer: Muestra la fecha actual del sistema y el botón para cerrar/expandir a íconos */}
+          <div className="px-2.5 py-1.5 border-b border-slate-200/80 bg-slate-50/80 flex items-center justify-between min-w-0 shrink-0">
+            {!sidebarColapsado && (
               <div
                 className="flex items-center gap-1.5 min-w-0 text-[#034EA2]"
                 title={`Fecha del sistema: ${fechaSistemaTexto}`}
               >
                 <Calendar className="w-3.5 h-3.5 text-[#007DC5] shrink-0" />
-                <span className="text-[10.5px] font-display font-extrabold uppercase tracking-wide truncate text-[#034EA2]">
+                <span className="text-[10px] sm:text-[10.5px] font-display font-extrabold uppercase tracking-wide truncate text-[#034EA2]">
                   {fechaSistemaTexto}
                 </span>
               </div>
-            ) : (
-              <div
-                className="w-full flex justify-center text-[#034EA2]"
-                title={`Fecha del sistema: ${fechaSistemaTexto}`}
-              >
-                <Calendar className="w-4 h-4 text-[#007DC5] shrink-0" />
-              </div>
             )}
-            <div className="flex items-center gap-1 shrink-0">
+            <div
+              className={`flex items-center gap-1 shrink-0 ${
+                sidebarColapsado ? 'w-full justify-center' : ''
+              }`}
+            >
               <button
                 type="button"
                 onClick={() => setSidebarColapsado((prev) => !prev)}
                 title={
                   sidebarColapsado
                     ? 'Expandir menú lateral'
-                    : 'Contraer menú a íconos'
+                    : 'Cerrar menú a íconos'
                 }
                 className="hidden lg:inline-flex p-1.5 rounded-lg text-slate-400 hover:text-[#034EA2] hover:bg-slate-200/60 transition-colors cursor-pointer"
               >
@@ -752,11 +737,10 @@ export default function App() {
           </div>
 
           {/* Lista de Módulos del Menú Lateral */}
-          <div className="flex flex-col flex-1 overflow-y-auto pt-2">
-
+          <div className="flex flex-col flex-1 overflow-y-auto py-1.5">
             <nav
               aria-label="Navegación principal"
-              className="px-2.5 space-y-1 flex-1"
+              className="px-2 space-y-0.5 flex-1"
             >
               <button
                 type="button"
@@ -767,8 +751,8 @@ export default function App() {
                   emitirPresencia('Boletín Oficial');
                 }}
                 className={`w-full flex items-center ${
-                  sidebarColapsado ? 'justify-center px-2' : 'gap-3 px-3.5'
-                } py-2.5 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
+                  sidebarColapsado ? 'justify-center px-2' : 'gap-3 px-3'
+                } py-2 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
                   vistaActiva === 'boletin'
                     ? 'bg-[#007DC5] text-white font-bold shadow-xs'
                     : 'text-slate-700 hover:bg-slate-100 hover:text-[#034EA2]'
@@ -780,14 +764,13 @@ export default function App() {
                 )}
               </button>
 
-
               <button
                 type="button"
                 title="Programación Semanal"
                 onClick={() => irASeccionEditor('semanal', 'Programación Semanal')}
                 className={`w-full flex items-center ${
-                  sidebarColapsado ? 'justify-center px-2' : 'gap-3 px-3.5'
-                } py-2.5 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
+                  sidebarColapsado ? 'justify-center px-2' : 'gap-3 px-3'
+                } py-2 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
                   vistaActiva === 'editor' && seccionEditorInicial === 'semanal'
                     ? 'bg-[#007DC5] text-white font-bold shadow-xs'
                     : 'text-slate-700 hover:bg-slate-100 hover:text-[#034EA2]'
@@ -806,8 +789,8 @@ export default function App() {
                   irASeccionEditor('documentos', 'Documentos y Enlaces')
                 }
                 className={`w-full flex items-center ${
-                  sidebarColapsado ? 'justify-center px-2' : 'gap-3 px-3.5'
-                } py-2.5 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
+                  sidebarColapsado ? 'justify-center px-2' : 'gap-3 px-3'
+                } py-2 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
                   vistaActiva === 'editor' && seccionEditorInicial === 'documentos'
                     ? 'bg-[#007DC5] text-white font-bold shadow-xs'
                     : 'text-slate-700 hover:bg-slate-100 hover:text-[#034EA2]'
@@ -826,8 +809,8 @@ export default function App() {
                   irASeccionEditor('practicas', 'Notiprácticas')
                 }
                 className={`w-full flex items-center ${
-                  sidebarColapsado ? 'justify-center px-2' : 'gap-3 px-3.5'
-                } py-2.5 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
+                  sidebarColapsado ? 'justify-center px-2' : 'gap-3 px-3'
+                } py-2 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
                   vistaActiva === 'editor' && seccionEditorInicial === 'practicas'
                     ? 'bg-[#007DC5] text-white font-bold shadow-xs'
                     : 'text-slate-700 hover:bg-slate-100 hover:text-[#034EA2]'
@@ -846,8 +829,8 @@ export default function App() {
                   irASeccionEditor('largo_plazo', 'Calendario a Largo Plazo')
                 }
                 className={`w-full flex items-center ${
-                  sidebarColapsado ? 'justify-center px-2' : 'gap-3 px-3.5'
-                } py-2.5 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
+                  sidebarColapsado ? 'justify-center px-2' : 'gap-3 px-3'
+                } py-2 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
                   vistaActiva === 'editor' && seccionEditorInicial === 'largo_plazo'
                     ? 'bg-[#007DC5] text-white font-bold shadow-xs'
                     : 'text-slate-700 hover:bg-slate-100 hover:text-[#034EA2]'
@@ -866,8 +849,8 @@ export default function App() {
                   irASeccionEditor('horarios', 'Horarios Personal de Apoyo')
                 }
                 className={`w-full flex items-center ${
-                  sidebarColapsado ? 'justify-center px-2' : 'gap-3 px-3.5'
-                } py-2.5 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
+                  sidebarColapsado ? 'justify-center px-2' : 'gap-3 px-3'
+                } py-2 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
                   vistaActiva === 'editor' && seccionEditorInicial === 'horarios'
                     ? 'bg-[#007DC5] text-white font-bold shadow-xs'
                     : 'text-slate-700 hover:bg-slate-100 hover:text-[#034EA2]'
@@ -886,8 +869,8 @@ export default function App() {
                   irASeccionEditor('historial', 'Registro Histórico de Cambios')
                 }
                 className={`w-full flex items-center ${
-                  sidebarColapsado ? 'justify-center px-2' : 'gap-3 px-3.5'
-                } py-2.5 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
+                  sidebarColapsado ? 'justify-center px-2' : 'gap-3 px-3'
+                } py-2 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
                   vistaActiva === 'editor' && seccionEditorInicial === 'historial'
                     ? 'bg-[#007DC5] text-white font-bold shadow-xs'
                     : 'text-slate-700 hover:bg-slate-100 hover:text-[#034EA2]'
@@ -904,8 +887,8 @@ export default function App() {
                 title="Administración de Usuarios Institucionales"
                 onClick={() => setModalUsuariosAbierto(true)}
                 className={`w-full flex items-center ${
-                  sidebarColapsado ? 'justify-center px-2' : 'gap-3 px-3.5'
-                } py-2.5 rounded-xl text-xs font-semibold transition-all cursor-pointer text-slate-700 hover:bg-slate-100 hover:text-[#034EA2]`}
+                  sidebarColapsado ? 'justify-center px-2' : 'gap-3 px-3'
+                } py-2 rounded-xl text-xs font-semibold transition-all cursor-pointer text-slate-700 hover:bg-slate-100 hover:text-[#034EA2]`}
               >
                 <UserCheck className="w-4 h-4 text-[#007DC5] shrink-0" />
                 {!sidebarColapsado && (
@@ -913,7 +896,7 @@ export default function App() {
                 )}
               </button>
 
-              <div className="pt-2 mt-2 border-t border-slate-200/80 space-y-1">
+              <div className="pt-1.5 mt-1.5 border-t border-slate-200/80 space-y-0.5">
                 <button
                   type="button"
                   onClick={() => setModalPreviewAbierto(true)}
@@ -921,8 +904,8 @@ export default function App() {
                   className={`w-full flex items-center ${
                     sidebarColapsado
                       ? 'justify-center px-2'
-                      : 'justify-between gap-2 px-3.5'
-                  } py-2.5 rounded-xl text-xs font-semibold text-slate-700 hover:bg-emerald-50/80 hover:text-emerald-800 transition-colors cursor-pointer text-left`}
+                      : 'justify-between gap-2 px-3'
+                  } py-2 rounded-xl text-xs font-semibold text-slate-700 hover:bg-emerald-50/80 hover:text-emerald-800 transition-colors cursor-pointer text-left`}
                 >
                   <span className="flex items-center gap-3 truncate">
                     <Globe className="w-4 h-4 text-emerald-600 shrink-0" />
@@ -939,9 +922,9 @@ export default function App() {
           </div>
 
           {/* Pie del Menú Lateral: Monitor de Usuarios Conectados y Sesión */}
-          <div className="p-2.5 border-t border-slate-200/80 space-y-2 bg-slate-50/50">
+          <div className="p-2 border-t border-slate-200/80 space-y-1.5 bg-slate-50/50 shrink-0">
             {/* Monitor de Usuarios Conectados */}
-            <div className="bg-[#0F172A] text-white rounded-xl p-2.5 space-y-2 shadow-xs">
+            <div className="bg-[#0F172A] text-white rounded-xl p-2 space-y-1.5 shadow-xs">
               <div
                 className={`flex items-center ${
                   sidebarColapsado ? 'justify-center' : 'justify-between'
@@ -971,13 +954,15 @@ export default function App() {
                 className={`${
                   sidebarColapsado
                     ? 'flex flex-col items-center gap-2'
-                    : 'space-y-1.5 max-h-36 overflow-y-auto pr-0.5'
+                    : 'space-y-1 max-h-28 overflow-y-auto pr-0.5'
                 }`}
               >
                 {listaConectados.map((u, idx) => {
                   const estaEditando = u.estadoActividad === 'editando';
                   const iniciales = obtenerIniciales(u.nombre);
-                  const estadoTexto = estaEditando ? 'Activo en el sistema' : 'Desatendido / Inactivo';
+                  const estadoTexto = estaEditando
+                    ? 'Activo en el sistema'
+                    : 'Desatendido / Inactivo';
 
                   if (sidebarColapsado) {
                     return (
@@ -1090,14 +1075,6 @@ export default function App() {
             )}
           </div>
         </aside>
-
-        {/* Fondo semitransparente para menú móvil */}
-        {menuMovilAbierto && (
-          <div
-            onClick={() => setMenuMovilAbierto(false)}
-            className="fixed inset-0 bg-slate-900/40 z-30 lg:hidden"
-          />
-        )}
 
         {/* Área de Trabajo Principal */}
         <main className="flex-1 w-full max-w-[1380px] mx-auto px-4 sm:px-6 py-6 min-w-0 scroll-smooth">
