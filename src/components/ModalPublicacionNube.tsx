@@ -43,12 +43,12 @@ const CODIGO_APPS_SCRIPT_PUENTE_DRIVE = `// PUENTE GRATUITO NOTIPROFES -> GOOGLE
 function doPost(e) {
   try {
     var data = JSON.parse(e.postData.contents);
-    var folderName = data.folderName || 'Villa Flora 2026';
+    var folderName = data.folderName || 'Notiprofes 2026';
     var fileName = data.fileName || 'NotiProfes_VillaFlora.pdf';
     var bytes = Utilities.base64Decode(data.pdfBase64);
     var blob = Utilities.newBlob(bytes, 'application/pdf', fileName);
 
-    // 1. Buscar o crear la carpeta anual (ej. "Villa Flora 2026")
+    // 1. Buscar o crear la carpeta anual (ej. "Notiprofes 2026")
     var folder = null;
     if (data.folderId) {
       try { folder = DriveApp.getFolderById(data.folderId); } catch (err) {}
@@ -168,28 +168,28 @@ export const ModalPublicacionNube: React.FC<ModalPublicacionNubeProps> = ({
     texto: string;
   } | null>(null);
 
-  // Estados de vinculación de carpeta institucional por año lectivo (ej. "Villa Flora 2026", "Villa Flora 2027")
+  // Estados de vinculación de carpeta institucional por año lectivo (ej. "Notiprofes 2026", "Notiprofes 2027")
   const [carpetasPorAnio, setCarpetasPorAnio] = useState<
     Record<string, ConfigCarpetaAnualUI>
   >({
     '2026': {
       anio: 2026,
-      folderInput: 'Villa Flora 2026',
+      folderInput: 'Notiprofes 2026',
       folderId: '',
-      folderName: 'Villa Flora 2026',
+      folderName: 'Notiprofes 2026',
     },
     '2027': {
       anio: 2027,
-      folderInput: 'Villa Flora 2027',
+      folderInput: 'Notiprofes 2027',
       folderId: '',
-      folderName: 'Villa Flora 2027',
+      folderName: 'Notiprofes 2027',
     },
   });
   const [anioCarpetaSeleccionado, setAnioCarpetaSeleccionado] = useState<number>(
     anioBoletinActual
   );
   const [nombreCarpetaAnual, setNombreCarpetaAnual] = useState<string>(
-    `Villa Flora ${anioBoletinActual}`
+    `Notiprofes ${anioBoletinActual}`
   );
   const [guardandoCarpetaAnual, setGuardandoCarpetaAnual] = useState<boolean>(false);
 
@@ -308,7 +308,7 @@ export const ModalPublicacionNube: React.FC<ModalPublicacionNubeProps> = ({
             const confActual = data.carpetasPorAnio[String(anioBoletinActual)];
             if (confActual) {
               setNombreCarpetaAnual(
-                confActual.folderName || `Villa Flora ${anioBoletinActual}`
+                confActual.folderName || `Notiprofes ${anioBoletinActual}`
               );
             }
           }
@@ -361,9 +361,9 @@ export const ModalPublicacionNube: React.FC<ModalPublicacionNubeProps> = ({
     setAnioCarpetaSeleccionado(nuevoAnio);
     const conf = carpetasPorAnio[String(nuevoAnio)];
     if (conf) {
-      setNombreCarpetaAnual(conf.folderName || `Villa Flora ${nuevoAnio}`);
+      setNombreCarpetaAnual(conf.folderName || `Notiprofes ${nuevoAnio}`);
     } else {
-      setNombreCarpetaAnual(`Villa Flora ${nuevoAnio}`);
+      setNombreCarpetaAnual(`Notiprofes ${nuevoAnio}`);
     }
   };
 
@@ -510,7 +510,7 @@ export const ModalPublicacionNube: React.FC<ModalPublicacionNubeProps> = ({
     setMensajeDrivePdf(null);
 
     const valorNombre =
-      nombreCarpetaAnual.trim() || `Villa Flora ${anioGuardar}`;
+      nombreCarpetaAnual.trim() || `Notiprofes ${anioGuardar}`;
     const idDetectado = extraerIdCarpetaDrive(valorNombre);
 
     try {
@@ -524,7 +524,7 @@ export const ModalPublicacionNube: React.FC<ModalPublicacionNubeProps> = ({
           anio: anioGuardar,
           folderInput: valorNombre,
           folderId: idDetectado,
-          folderName: idDetectado ? `Villa Flora ${anioGuardar}` : valorNombre,
+          folderName: idDetectado ? `Notiprofes ${anioGuardar}` : valorNombre,
         }),
       });
       const data = await resp.json();
@@ -577,7 +577,7 @@ export const ModalPublicacionNube: React.FC<ModalPublicacionNubeProps> = ({
 
       const carpetaObjetivo =
         carpetasPorAnio[String(anioBoletinActual)]?.folderName ||
-        `Villa Flora ${anioBoletinActual}`;
+        `Notiprofes ${anioBoletinActual}`;
 
       const resp = await fetch('/api/drive/publicar-pdf', {
         method: 'POST',
@@ -784,7 +784,7 @@ export const ModalPublicacionNube: React.FC<ModalPublicacionNubeProps> = ({
 
   const carpetaActivaBoletin =
     carpetasPorAnio[String(anioBoletinActual)]?.folderName ||
-    `Villa Flora ${anioBoletinActual}`;
+    `Notiprofes ${anioBoletinActual}`;
 
   return (
     <div
@@ -1073,7 +1073,7 @@ export const ModalPublicacionNube: React.FC<ModalPublicacionNubeProps> = ({
                       type="text"
                       value={nombreCarpetaAnual}
                       onChange={(e) => setNombreCarpetaAnual(e.target.value)}
-                      placeholder={`Villa Flora ${anioCarpetaSeleccionado}`}
+                      placeholder={`Notiprofes ${anioCarpetaSeleccionado}`}
                       className="flex-1 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-800 focus:outline-none focus:border-emerald-600"
                     />
                     <button

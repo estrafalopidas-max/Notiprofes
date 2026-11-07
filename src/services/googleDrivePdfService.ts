@@ -330,7 +330,7 @@ export const desconectarGoogleDrive = async (): Promise<void> => {
   cachedUserEmail = null;
 };
 
-const NOMBRE_CARPETA_INSTITUCIONAL = 'NotiProfes Oficial - I.E. Villa Flora';
+const NOMBRE_CARPETA_INSTITUCIONAL = 'Notiprofes 2026';
 
 /**
  * Genera el documento PDF oficial completo del Boletín Semanal con todas sus secciones:
@@ -1076,7 +1076,7 @@ export async function listarCarpetasDriveDisponibles(): Promise<
 }
 
 /**
- * Busca o crea la carpeta institucional del año lectivo (ej. «Villa Flora 2026» o «Villa Flora 2027»)
+ * Busca o crea la carpeta institucional del año lectivo (ej. «Notiprofes 2026» o «Notiprofes 2027»)
  * o utiliza el ID de carpeta específico vinculado por el directivo en Google Drive.
  */
 async function obtenerOCrearCarpetaDrive(
@@ -1087,7 +1087,7 @@ async function obtenerOCrearCarpetaDrive(
   const idConfigurado = extraerIdCarpetaDrive(opciones?.folderId || '');
   const nombreObjetivo =
     (opciones?.folderName || '').trim() ||
-    `Villa Flora ${anio}` ||
+    `Notiprofes ${anio}` ||
     NOMBRE_CARPETA_INSTITUCIONAL;
 
   // 1. Si el directivo vinculó un ID o enlace específico de carpeta, verificar acceso en Drive

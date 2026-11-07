@@ -444,7 +444,7 @@ function guardarConfiguracionSmtpPersistida(): void {
   }
 }
 
-// Persistencia de carpetas institucionales de Google Drive por año lectivo (ej. "Villa Flora 2026", "Villa Flora 2027")
+// Persistencia de carpetas institucionales de Google Drive por año lectivo (ej. "Notiprofes 2026", "Notiprofes 2027")
 export interface ConfiguracionCarpetaDriveAnual {
   anio: number;
   folderInput: string;
@@ -473,19 +473,30 @@ function extraerIdCarpetaDriveServidor(entrada: string): string {
   return '';
 }
 
+function normalizarNombreCarpetaAnualPorDefecto(
+  valor: string | undefined,
+  anioNum: number
+): string {
+  const limpio = String(valor || '').trim();
+  if (!limpio || /^Villa Flora\s+\d{4}$/i.test(limpio)) {
+    return `Notiprofes ${anioNum}`;
+  }
+  return limpio;
+}
+
 function cargarCarpetasDrivePorAnio(): Record<string, ConfiguracionCarpetaDriveAnual> {
   const basePorDefecto: Record<string, ConfiguracionCarpetaDriveAnual> = {
     '2026': {
       anio: 2026,
-      folderInput: 'Villa Flora 2026',
+      folderInput: 'Notiprofes 2026',
       folderId: '',
-      folderName: 'Villa Flora 2026',
+      folderName: 'Notiprofes 2026',
     },
     '2027': {
       anio: 2027,
-      folderInput: 'Villa Flora 2027',
+      folderInput: 'Notiprofes 2027',
       folderId: '',
-      folderName: 'Villa Flora 2027',
+      folderName: 'Notiprofes 2027',
     },
   };
 
@@ -498,11 +509,19 @@ function cargarCarpetasDrivePorAnio(): Record<string, ConfiguracionCarpetaDriveA
         for (const [k, v] of Object.entries(raw)) {
           const anioNum = Number(v?.anio || k);
           if (anioNum >= 2020 && anioNum <= 2100) {
+            const nombreNormalizado = normalizarNombreCarpetaAnualPorDefecto(
+              v.folderName,
+              anioNum
+            );
+            const inputNormalizado = normalizarNombreCarpetaAnualPorDefecto(
+              v.folderInput || v.folderName,
+              anioNum
+            );
             basePorDefecto[String(anioNum)] = {
               anio: anioNum,
-              folderInput: String(v.folderInput || v.folderName || `Villa Flora ${anioNum}`).trim(),
+              folderInput: inputNormalizado,
               folderId: String(v.folderId || '').trim(),
-              folderName: String(v.folderName || `Villa Flora ${anioNum}`).trim(),
+              folderName: nombreNormalizado,
               actualizadoEn: v.actualizadoEn,
               actualizadoPor: v.actualizadoPor,
             };
@@ -584,11 +603,11 @@ function guardarConfiguracionConectorDrive(): void {
 }
 
 function sanitizarNombreCarpetaLocal(nombre: string): string {
-  const limpio = (nombre || 'Villa Flora 2026')
+  const limpio = (nombre || 'Notiprofes 2026')
     .replace(/[<>:"/\\|?*\x00-\x1F]/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
-  return limpio || 'Villa Flora 2026';
+  return limpio || 'Notiprofes 2026';
 }
 
 function obtenerConfiguracionSmtpEntorno() {
@@ -1784,13 +1803,13 @@ async function iniciarServidor() {
 
       const configCarpetaAnio = carpetasDrivePorAnio[String(anioLectivo)] || {
         anio: anioLectivo,
-        folderInput: `Villa Flora ${anioLectivo}`,
+        folderInput: `Notiprofes ${anioLectivo}`,
         folderId: '',
-        folderName: `Villa Flora ${anioLectivo}`,
+        folderName: `Notiprofes ${anioLectivo}`,
       };
 
       const nombreCarpetaAnual = sanitizarNombreCarpetaLocal(
-        (folderNameOverride || configCarpetaAnio.folderName || `Villa Flora ${anioLectivo}`).trim()
+        (folderNameOverride || configCarpetaAnio.folderName || `Notiprofes ${anioLectivo}`).trim()
       );
 
       // 1. OPCIÓN 2: Guardar siempre en el almacenamiento persistente (/app/data/pdfs/<CarpetaAnual>/ y /app/data/pdfs/)
@@ -1962,7 +1981,7 @@ async function iniciarServidor() {
         (folderName ?? '').trim() ||
         (!idExtraido && entradaLimpia
           ? entradaLimpia
-          : `Villa Flora ${anioNum}`);
+          : `Notiprofes ${anioNum}`);
 
       const ahoraTexto = new Date().toLocaleString('es-CO', {
         timeZone: 'America/Bogota',
