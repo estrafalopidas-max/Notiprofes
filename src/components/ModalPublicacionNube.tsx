@@ -33,16 +33,27 @@ import {
   obtenerAnioBoletin,
 } from '../services/googleDrivePdfService';
 
-// Código listo para copiar y pegar en https://script.google.com (100% gratuito, sin Google Cloud Console ni tarjetas)
-const CODIGO_APPS_SCRIPT_PUENTE_DRIVE = `// PUENTE GRATUITO NOTIPROFES -> GOOGLE DRIVE (SIN GOOGLE CLOUD CONSOLE)
+// Genera el código listo para copiar y pegar en https://script.google.com con llave de seguridad integrada
+function construirCodigoAppsScriptPuente(secretToken: string): string {
+  const tokenSeguro = (secretToken || '').replace(/['"\\]/g, '');
+  return `// PUENTE GRATUITO NOTIPROFES -> GOOGLE DRIVE (SIN GOOGLE CLOUD CONSOLE)
 // 1. Pega este código en https://script.google.com
 // 2. Pulsa "Implementar" -> "Nueva implementación" -> Tipo: "Aplicación web"
 // 3. Ejecutar como: "Yo" | Quién tiene acceso: "Cualquier persona"
 // 4. Copia la URL generada y pégala en NotiProfes.
 
+var SECRET_TOKEN = '${tokenSeguro}';
+
 function doPost(e) {
   try {
     var data = JSON.parse(e.postData.contents);
+    if (SECRET_TOKEN && data.secretToken !== SECRET_TOKEN) {
+      return ContentService.createTextOutput(JSON.stringify({
+        ok: false,
+        error: 'Acceso rechazado: token de seguridad no autorizado.'
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
+
     var folderName = data.folderName || 'Notiprofes 2026';
     var fileName = data.fileName || 'NotiProfes_VillaFlora.pdf';
     var bytes = Utilities.base64Decode(data.pdfBase64);
@@ -94,6 +105,7 @@ function doPost(e) {
     })).setMimeType(ContentService.MimeType.JSON);
   }
 }`;
+}
 
 function convertirBlobABase64(blob: Blob): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -133,6 +145,7 @@ export const ModalPublicacionNube: React.FC<ModalPublicacionNubeProps> = ({
   abierto,
   onCerrar,
   boletin,
+  usuarioActual,
   tokenSesion,
   onSolicitarLogin,
   onAbrirPrevisualizacion,
@@ -140,6 +153,9 @@ export const ModalPublicacionNube: React.FC<ModalPublicacionNubeProps> = ({
   onSincronizarPublicacion,
 }) => {
   const anioBoletinActual = useMemo(() => obtenerAnioBoletin(boletin), [boletin]);
+  const esAdminUsuario =
+    usuarioActual?.rol === 'administrador' ||
+    Boolean(usuarioActual?.permisos?.puedeGestionarUsuarios);
 
   const [linkCorto, setLinkCorto] = useState<string>(
     boletin.numero === 40 ? 'https://is.gd/52X1sx' : `https://is.gd/vf26n${boletin.numero}`
@@ -159,6 +175,7 @@ export const ModalPublicacionNube: React.FC<ModalPublicacionNubeProps> = ({
   const [mostrarAjustesAvanzadosDrive, setMostrarAjustesAvanzadosDrive] =
     useState<boolean>(false);
   const [appsScriptUrl, setAppsScriptUrl] = useState<string>('');
+  const [appsScriptToken, setAppsScriptToken] = useState<string>('');
   const [appsScriptConfigurado, setAppsScriptConfigurado] =
     useState<boolean>(false);
   const [guardandoConectorScript, setGuardandoConectorScript] =
@@ -297,10 +314,14 @@ export const ModalPublicacionNube: React.FC<ModalPublicacionNubeProps> = ({
           const data = (await resp.json()) as {
             carpetasPorAnio?: Record<string, ConfigCarpetaAnualUI>;
             appsScriptUrl?: string;
+            appsScriptToken?: string;
             appsScriptConfigurado?: boolean;
           };
           if (typeof data.appsScriptUrl === 'string') {
             setAppsScriptUrl(data.appsScriptUrl);
+          }
+          if (typeof data.appsScriptToken === 'string') {
+            setAppsScriptToken(data.appsScriptToken);
           }
           setAppsScriptConfigurado(Boolean(data.appsScriptConfigurado));
           if (data.carpetasPorAnio) {
@@ -424,7 +445,8 @@ export const ModalPublicacionNube: React.FC<ModalPublicacionNubeProps> = ({
   };
 
   const handleCopiarCodigoAppsScript = () => {
-    navigator.clipboard?.writeText(CODIGO_APPS_SCRIPT_PUENTE_DRIVE);
+    const codigoFirmado = construirCodigoAppsScriptPuente(appsScriptToken);
+    navigator.clipboard?.writeText(codigoFirmado);
     setCopiadoCodigoScript(true);
     setTimeout(() => setCopiadoCodigoScript(false), 3000);
   };
@@ -896,18 +918,20 @@ export const ModalPublicacionNube: React.FC<ModalPublicacionNubeProps> = ({
                   </span>
                 </div>
 
-                <button
-                  type="button"
-                  onClick={() => setMostrarAjustesAvanzadosDrive((prev) => !prev)}
-                  className="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 text-[11px] font-semibold inline-flex items-center gap-1.5 cursor-pointer transition-colors"
-                >
-                  <Settings className="w-3.5 h-3.5 text-slate-600" />
-                  <span>
-                    {mostrarAjustesAvanzadosDrive
-                      ? 'Ocultar configuración'
-                      : 'Configurar Google Drive / Carpeta'}
-                  </span>
-                </button>
+                {esAdminUsuario && (
+                  <button
+                    type="button"
+                    onClick={() => setMostrarAjustesAvanzadosDrive((prev) => !prev)}
+                    className="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 text-[11px] font-semibold inline-flex items-center gap-1.5 cursor-pointer transition-colors"
+                  >
+                    <Settings className="w-3.5 h-3.5 text-slate-600" />
+                    <span>
+                      {mostrarAjustesAvanzadosDrive
+                        ? 'Ocultar configuración'
+                        : 'Configurar Google Drive / Carpeta'}
+                    </span>
+                  </button>
+                )}
               </div>
 
               {/* Enlace directo permanente del PDF en el servidor + enlace de Google Drive si existe */}
@@ -970,8 +994,8 @@ export const ModalPublicacionNube: React.FC<ModalPublicacionNubeProps> = ({
               </div>
             </div>
 
-            {/* PANEL DESPLEGABLE DE ADMINISTRADOR (Cerrado por defecto para no confundir a otros usuarios) */}
-            {mostrarAjustesAvanzadosDrive && (
+            {/* PANEL DESPLEGABLE DE ADMINISTRADOR (Cerrado por defecto y exclusivo para Administradores) */}
+            {esAdminUsuario && mostrarAjustesAvanzadosDrive && (
               <div className="bg-white border border-emerald-300 rounded-xl p-3.5 space-y-3 text-xs animate-in fade-in duration-150">
                 {/* OPCIÓN 1: PUENTE GRATUITO GOOGLE APPS SCRIPT (SIN GOOGLE CLOUD NI TARJETAS) */}
                 <div className="space-y-2">

@@ -401,6 +401,72 @@ function guardarPreferenciasNotificacion(): void {
 }
 
 const ARCHIVO_SMTP_SERVIDOR = path.join(DIRECTORIO_DATOS, 'notiprofes-smtp-servidor.json');
+const ARCHIVO_LLAVE_MAESTRA = path.join(DIRECTORIO_DATOS, '.notiprofes-master.key');
+
+function obtenerLlaveCifradoLocal(): Buffer {
+  const secretoEntorno = (
+    process.env.APP_SECRET ||
+    process.env.SUPPORT_ADMIN_PASS ||
+    ''
+  ).trim();
+  if (secretoEntorno) {
+    return crypto.createHash('sha256').update(secretoEntorno).digest();
+  }
+  try {
+    if (fs.existsSync(ARCHIVO_LLAVE_MAESTRA)) {
+      const hex = fs.readFileSync(ARCHIVO_LLAVE_MAESTRA, 'utf-8').trim();
+      if (hex.length === 64) {
+        return Buffer.from(hex, 'hex');
+      }
+    }
+    const nuevaLlave = crypto.randomBytes(32);
+    fs.writeFileSync(ARCHIVO_LLAVE_MAESTRA, nuevaLlave.toString('hex'), {
+      encoding: 'utf-8',
+      mode: 0o600,
+    });
+    return nuevaLlave;
+  } catch {
+    return crypto
+      .createHash('sha256')
+      .update(`notiprofes-vf-${DIRECTORIO_DATOS}`)
+      .digest();
+  }
+}
+
+function cifrarSecretoLocal(textoPlano: string): string {
+  if (!textoPlano) return '';
+  if (textoPlano.startsWith('enc:v1:')) return textoPlano;
+  const key = obtenerLlaveCifradoLocal();
+  const iv = crypto.randomBytes(12);
+  const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
+  const encrypted = Buffer.concat([
+    cipher.update(textoPlano, 'utf-8'),
+    cipher.final(),
+  ]);
+  const tag = cipher.getAuthTag();
+  return `enc:v1:${iv.toString('hex')}:${tag.toString('hex')}:${encrypted.toString('hex')}`;
+}
+
+function descifrarSecretoLocal(valorAlmacenado: string): string {
+  if (!valorAlmacenado) return '';
+  if (!valorAlmacenado.startsWith('enc:v1:')) return valorAlmacenado;
+  try {
+    const partes = valorAlmacenado.split(':');
+    if (partes.length !== 5) return '';
+    const iv = Buffer.from(partes[2], 'hex');
+    const tag = Buffer.from(partes[3], 'hex');
+    const encrypted = Buffer.from(partes[4], 'hex');
+    const key = obtenerLlaveCifradoLocal();
+    const decipher = crypto.createDecipheriv('aes-256-gcm', key, iv);
+    decipher.setAuthTag(tag);
+    return Buffer.concat([
+      decipher.update(encrypted),
+      decipher.final(),
+    ]).toString('utf-8');
+  } catch {
+    return '';
+  }
+}
 
 interface ConfiguracionServidorSmtpPersistida {
   host: string;
@@ -420,7 +486,11 @@ function cargarConfiguracionSmtpPersistida(): Partial<ConfiguracionServidorSmtpP
         fs.readFileSync(ARCHIVO_SMTP_SERVIDOR, 'utf-8')
       ) as Partial<ConfiguracionServidorSmtpPersistida>;
       if (datos && typeof datos === 'object') {
-        return datos;
+        const passPlana = datos.pass ? descifrarSecretoLocal(datos.pass) : '';
+        return {
+          ...datos,
+          pass: passPlana,
+        };
       }
     }
   } catch (err) {
@@ -434,10 +504,16 @@ const configSmtpPersistida: Partial<ConfiguracionServidorSmtpPersistida> =
 
 function guardarConfiguracionSmtpPersistida(): void {
   try {
+    const copiaSegura = {
+      ...configSmtpPersistida,
+      pass: configSmtpPersistida.pass
+        ? cifrarSecretoLocal(configSmtpPersistida.pass)
+        : '',
+    };
     fs.writeFileSync(
       ARCHIVO_SMTP_SERVIDOR,
-      JSON.stringify(configSmtpPersistida, null, 2),
-      'utf-8'
+      JSON.stringify(copiaSegura, null, 2),
+      { encoding: 'utf-8', mode: 0o600 }
     );
   } catch (err) {
     console.error('Error al guardar configuración de servidor SMTP:', err);
@@ -557,6 +633,7 @@ if (!fs.existsSync(DIRECTORIO_PDFS)) {
 
 interface ConfiguracionConectorDrive {
   appsScriptUrl: string;
+  secretToken: string;
   actualizadoEn?: string;
   actualizadoPor?: string;
 }
@@ -567,25 +644,50 @@ const ARCHIVO_DRIVE_CONECTOR = path.join(
 );
 
 function cargarConfiguracionConectorDrive(): ConfiguracionConectorDrive {
+  const tokenPorDefecto =
+    (process.env.GOOGLE_APPS_SCRIPT_SECRET || '').trim() ||
+    `vf-bridge-${crypto.randomBytes(12).toString('hex')}`;
+
   try {
     if (fs.existsSync(ARCHIVO_DRIVE_CONECTOR)) {
       const raw = JSON.parse(
         fs.readFileSync(ARCHIVO_DRIVE_CONECTOR, 'utf-8')
       ) as Partial<ConfiguracionConectorDrive>;
-      return {
+      const configCargada: ConfiguracionConectorDrive = {
         appsScriptUrl: String(
           raw.appsScriptUrl || process.env.GOOGLE_APPS_SCRIPT_DRIVE_URL || ''
         ).trim(),
+        secretToken: String(raw.secretToken || tokenPorDefecto).trim(),
         actualizadoEn: raw.actualizadoEn,
         actualizadoPor: raw.actualizadoPor,
       };
+      if (!raw.secretToken) {
+        fs.writeFileSync(
+          ARCHIVO_DRIVE_CONECTOR,
+          JSON.stringify(configCargada, null, 2),
+          { encoding: 'utf-8', mode: 0o600 }
+        );
+      }
+      return configCargada;
     }
   } catch (err) {
     console.error('Error al cargar conector Apps Script de Drive:', err);
   }
-  return {
+
+  const inicial: ConfiguracionConectorDrive = {
     appsScriptUrl: (process.env.GOOGLE_APPS_SCRIPT_DRIVE_URL || '').trim(),
+    secretToken: tokenPorDefecto,
   };
+  try {
+    fs.writeFileSync(
+      ARCHIVO_DRIVE_CONECTOR,
+      JSON.stringify(inicial, null, 2),
+      { encoding: 'utf-8', mode: 0o600 }
+    );
+  } catch {
+    // Ignorar error de escritura inicial
+  }
+  return inicial;
 }
 
 let conectorDriveConfig = cargarConfiguracionConectorDrive();
@@ -595,7 +697,7 @@ function guardarConfiguracionConectorDrive(): void {
     fs.writeFileSync(
       ARCHIVO_DRIVE_CONECTOR,
       JSON.stringify(conectorDriveConfig, null, 2),
-      'utf-8'
+      { encoding: 'utf-8', mode: 0o600 }
     );
   } catch (err) {
     console.error('Error al guardar conector Apps Script de Drive:', err);
@@ -1055,93 +1157,70 @@ async function iniciarServidor() {
     res.json({ perfiles: perfilesSanitizados });
   });
 
-  app.post('/api/auth/registro', (req, res) => {
-    const { nombre, cargo, rol, correo, pin } = req.body as {
-      nombre?: string;
-      cargo?: string;
-      rol?: RolUsuario;
-      correo?: string;
-      pin?: string;
-    };
+  app.post(
+    '/api/auth/registro',
+    verificarSesionDirectiva,
+    verificarRolAdministrador,
+    (req: RequestAutenticado, res) => {
+      const { nombre, cargo, rol, correo, pin } = req.body as {
+        nombre?: string;
+        cargo?: string;
+        rol?: RolUsuario;
+        correo?: string;
+        pin?: string;
+      };
 
-    if (!nombre || !cargo || !pin || pin.trim().length < 4) {
-      res.status(400).json({
-        error: 'Debe ingresar nombre completo, cargo institucional y un PIN de al menos 4 dígitos.',
-      });
-      return;
-    }
+      if (!nombre || !cargo || !pin || pin.trim().length < 4) {
+        res.status(400).json({
+          error:
+            'Debe ingresar nombre completo, cargo institucional y un PIN de al menos 4 dígitos.',
+        });
+        return;
+      }
 
-    // Evitar escalada de privilegios: solo un Administrador autenticado puede otorgar el rol 'administrador'
-    const sesionSolicitante = obtenerSesionValidaDesdeHeader(
-      req.headers.authorization
-    );
-    const esAdminSolicitante =
-      sesionSolicitante?.usuario.rol === 'administrador' ||
-      Boolean(sesionSolicitante?.usuario.permisos?.puedeGestionarUsuarios);
+      const rolElegido: RolUsuario =
+        rol && PERMISOS_POR_ROL[rol] ? rol : 'editor';
 
-    if (rol === 'administrador' && !esAdminSolicitante) {
-      res.status(403).json({
-        error:
-          'Solo un usuario con rol Administrador puede registrar nuevas cuentas de nivel Administrador.',
-      });
-      return;
-    }
+      const nuevoId = `user-${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 6)}`;
+      const paletaColores = [
+        '#1E3A8A',
+        '#0F766E',
+        '#9A3412',
+        '#4338CA',
+        '#0284C7',
+        '#7C3AED',
+        '#059669',
+        '#B45309',
+      ];
+      const color =
+        paletaColores[usuariosRegistrados.length % paletaColores.length];
 
-    const rolElegido: RolUsuario =
-      esAdminSolicitante && rol && PERMISOS_POR_ROL[rol] ? rol : 'editor';
+      const nuevoUsuario: UsuarioDirectivo = {
+        id: nuevoId,
+        usuario: nombre.trim().toLowerCase().replace(/\s+/g, '.'),
+        nombre: nombre.trim(),
+        cargo: cargo.trim(),
+        rol: rolElegido,
+        color,
+        correo: correo?.trim() || `${nuevoId}@ievillaflora.edu.co`,
+        permisos: PERMISOS_POR_ROL[rolElegido],
+      };
 
-    const nuevoId = `user-${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 6)}`;
-    const paletaColores = [
-      '#1E3A8A',
-      '#0F766E',
-      '#9A3412',
-      '#4338CA',
-      '#0284C7',
-      '#7C3AED',
-      '#059669',
-      '#B45309',
-    ];
-    const color = paletaColores[usuariosRegistrados.length % paletaColores.length];
+      usuariosRegistrados.push(nuevoUsuario);
+      guardarUsuariosRegistrados();
 
-    const nuevoUsuario: UsuarioDirectivo = {
-      id: nuevoId,
-      usuario: nombre.trim().toLowerCase().replace(/\s+/g, '.'),
-      nombre: nombre.trim(),
-      cargo: cargo.trim(),
-      rol: rolElegido,
-      color,
-      correo: correo?.trim() || `${nuevoId}@ievillaflora.edu.co`,
-      permisos: PERMISOS_POR_ROL[rolElegido],
-    };
+      credencialesUsuarios[nuevoId] = generarHashPin(pin.trim());
+      guardarCredenciales();
 
-    usuariosRegistrados.push(nuevoUsuario);
-    guardarUsuariosRegistrados();
+      const tokenActual =
+        req.headers.authorization?.slice('Bearer '.length).trim() || '';
 
-    credencialesUsuarios[nuevoId] = generarHashPin(pin.trim());
-    guardarCredenciales();
-
-    // Si lo creó un administrador desde el panel, conserva la sesión actual sin reemplazarla
-    if (sesionSolicitante) {
       res.json({
-        token: sesionSolicitante.token,
+        token: tokenActual,
         usuario: nuevoUsuario,
       });
-      return;
     }
-
-    const token = crypto.randomBytes(24).toString('hex');
-    sesionesDirectivas.set(token, {
-      token,
-      usuario: nuevoUsuario,
-      creadaEn: Date.now(),
-    });
-    guardarSesionesPersistidas();
-
-    res.json({
-      token,
-      usuario: nuevoUsuario,
-    });
-  });
+  );
 
   app.put(
     '/api/auth/perfiles/:id',
@@ -1706,10 +1785,15 @@ async function iniciarServidor() {
   app.get(
     '/api/drive/carpetas',
     verificarSesionDirectiva,
-    (_req: RequestAutenticado, res) => {
+    (req: RequestAutenticado, res) => {
+      const esAdmin =
+        req.usuarioDirectivo?.rol === 'administrador' ||
+        Boolean(req.usuarioDirectivo?.permisos?.puedeGestionarUsuarios);
+
       res.json({
         carpetasPorAnio: carpetasDrivePorAnio,
-        appsScriptUrl: conectorDriveConfig.appsScriptUrl,
+        appsScriptUrl: esAdmin ? conectorDriveConfig.appsScriptUrl : '',
+        appsScriptToken: esAdmin ? conectorDriveConfig.secretToken : '',
         appsScriptConfigurado: Boolean(conectorDriveConfig.appsScriptUrl),
         rutaLocalTrueNas: DIRECTORIO_PDFS,
       });
@@ -1719,6 +1803,7 @@ async function iniciarServidor() {
   app.post(
     '/api/drive/conector',
     verificarSesionDirectiva,
+    verificarRolAdministrador,
     (req: RequestAutenticado, res) => {
       const { appsScriptUrl } = req.body as { appsScriptUrl?: string };
       const urlLimpia = (appsScriptUrl ?? '').trim();
@@ -1742,6 +1827,7 @@ async function iniciarServidor() {
       });
 
       conectorDriveConfig = {
+        ...conectorDriveConfig,
         appsScriptUrl: urlLimpia,
         actualizadoEn: ahoraTexto,
         actualizadoPor: `${req.usuarioDirectivo!.nombre} (${req.usuarioDirectivo!.cargo})`,
@@ -1751,6 +1837,7 @@ async function iniciarServidor() {
       res.json({
         ok: true,
         appsScriptUrl: conectorDriveConfig.appsScriptUrl,
+        appsScriptToken: conectorDriveConfig.secretToken,
         appsScriptConfigurado: Boolean(conectorDriveConfig.appsScriptUrl),
         mensaje: urlLimpia
           ? 'Puente directo con Google Drive (Apps Script) activado. Ya no necesitas iniciar sesión con Google en ningún dispositivo.'
@@ -1763,6 +1850,20 @@ async function iniciarServidor() {
     '/api/drive/publicar-pdf',
     verificarSesionDirectiva,
     async (req: RequestAutenticado, res) => {
+      const usr = req.usuarioDirectivo!;
+      const perms = usr.permisos || PERMISOS_POR_ROL[usr.rol];
+      if (
+        usr.rol !== 'administrador' &&
+        !perms?.puedeEditarActividades &&
+        !perms?.puedeClonarSemana
+      ) {
+        res.status(403).json({
+          error:
+            'Su perfil es de solo lectura y no cuenta con permisos para publicar o sobrescribir el PDF oficial.',
+        });
+        return;
+      }
+
       const {
         boletinId,
         numeroBoletin,
@@ -1800,6 +1901,17 @@ async function iniciarServidor() {
         ''
       );
       const bufferPdf = Buffer.from(base64Limpio, 'base64');
+
+      // Validar firma binaria mágica (%PDF-) para impedir escritura de archivos no válidos
+      if (
+        bufferPdf.length < 5 ||
+        bufferPdf.subarray(0, 5).toString('ascii') !== '%PDF-'
+      ) {
+        res.status(400).json({
+          error: 'El archivo recibido no tiene una firma binaria PDF válida (%PDF-).',
+        });
+        return;
+      }
 
       const configCarpetaAnio = carpetasDrivePorAnio[String(anioLectivo)] || {
         anio: anioLectivo,
@@ -1846,7 +1958,7 @@ async function iniciarServidor() {
       let subidoAGoogleDriveBridge = false;
       let avisoBridgeDrive: string | null = null;
 
-      // 2. OPCIÓN 1: Si hay puente Google Apps Script configurado, enviarlo automáticamente a Google Drive
+      // 2. OPCIÓN 1: Si hay puente Google Apps Script configurado, enviarlo automáticamente a Google Drive con secretToken
       if (conectorDriveConfig.appsScriptUrl) {
         try {
           const respBridge = await fetch(conectorDriveConfig.appsScriptUrl, {
@@ -1854,6 +1966,7 @@ async function iniciarServidor() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               action: 'upsertPdf',
+              secretToken: conectorDriveConfig.secretToken,
               anio: anioLectivo,
               folderName: nombreCarpetaAnual,
               folderId: configCarpetaAnio.folderId || '',
@@ -1910,7 +2023,7 @@ async function iniciarServidor() {
         }
       }
 
-      const autorVerificado = `${req.usuarioDirectivo!.nombre} (${req.usuarioDirectivo!.cargo})`;
+      const autorVerificado = `${usr.nombre} (${usr.cargo})`;
       const metadataActualizada = {
         fileId: fileIdFinal,
         fileName: nombreSeguro,
@@ -1958,6 +2071,7 @@ async function iniciarServidor() {
   app.post(
     '/api/drive/carpetas',
     verificarSesionDirectiva,
+    verificarRolAdministrador,
     (req: RequestAutenticado, res) => {
       const { anio, folderInput, folderId, folderName } = req.body as {
         anio?: number | string;

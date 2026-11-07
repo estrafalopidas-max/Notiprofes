@@ -1,22 +1,14 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   ArrowRight,
-  Check,
-  ChevronDown,
   Eye,
   EyeOff,
   Globe,
   Lock,
-  Mail,
-  ShieldCheck,
   User,
-  UserCheck,
-  UserPlus,
   X,
 } from 'lucide-react';
-import { USUARIOS_DIRECTIVOS } from '../data/seedNotiprofes40';
-import { RolUsuario, UsuarioDirectivo } from '../types/notiprofes';
-import { DropdownPersonalizado } from './DropdownPersonalizado';
+import { UsuarioDirectivo } from '../types/notiprofes';
 
 interface ModalAccesoDirectivoProps {
   abierto: boolean;
@@ -25,26 +17,6 @@ interface ModalAccesoDirectivoProps {
   onConsultaPublica?: () => void;
   esObligatorio?: boolean;
 }
-
-const ROLES_REGISTRO: Array<{
-  valor: RolUsuario;
-  etiqueta: string;
-  subtitulo: string;
-  colorPunto: string;
-}> = [
-  {
-    valor: 'editor',
-    etiqueta: 'Editor',
-    subtitulo: 'Edición y programación de actividades',
-    colorPunto: 'bg-[#007DC5]',
-  },
-  {
-    valor: 'administrador',
-    etiqueta: 'Administrador',
-    subtitulo: 'Gestión total de usuarios, emisión y control',
-    colorPunto: 'bg-purple-600',
-  },
-];
 
 export const ModalAccesoDirectivo: React.FC<ModalAccesoDirectivoProps> = ({
   abierto,
@@ -57,54 +29,14 @@ export const ModalAccesoDirectivo: React.FC<ModalAccesoDirectivoProps> = ({
   const [password, setPassword] = useState<string>('');
   const [verPassword, setVerPassword] = useState<boolean>(false);
   const [mostrarAyudaPassword, setMostrarAyudaPassword] = useState<boolean>(false);
-  const [modoRegistro, setModoRegistro] = useState<boolean>(false);
 
-  // Lista de perfiles cargados desde el servidor
-  const [listaUsuarios, setListaUsuarios] = useState<UsuarioDirectivo[]>(USUARIOS_DIRECTIVOS);
   const [error, setError] = useState<string | null>(null);
   const [cargando, setCargando] = useState<boolean>(false);
-
-  // Campos para Registro de nuevo docente
-  const [regNombre, setRegNombre] = useState<string>('');
-  const [regCargo, setRegCargo] = useState<string>('');
-  const [regRol, setRegRol] = useState<RolUsuario>('editor');
-  const [regCorreo, setRegCorreo] = useState<string>('');
-  const [regPin, setRegPin] = useState<string>('');
-  const [menuRolAbierto, setMenuRolAbierto] = useState<boolean>(false);
-  const selectorRolRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    const manejarClickFuera = (e: MouseEvent) => {
-      if (
-        selectorRolRef.current &&
-        !selectorRolRef.current.contains(e.target as Node)
-      ) {
-        setMenuRolAbierto(false);
-      }
-    };
-
-    if (menuRolAbierto) {
-      document.addEventListener('mousedown', manejarClickFuera);
-    }
-    return () => {
-      document.removeEventListener('mousedown', manejarClickFuera);
-    };
-  }, [menuRolAbierto]);
 
   useEffect(() => {
     if (abierto) {
       setError(null);
       setMostrarAyudaPassword(false);
-      fetch('/api/auth/perfiles')
-        .then((res) => res.json())
-        .then((data) => {
-          if (Array.isArray(data.perfiles) && data.perfiles.length > 0) {
-            setListaUsuarios(data.perfiles);
-          }
-        })
-        .catch(() => {
-          // Mantiene la lista local si el servidor tarda en responder
-        });
     }
   }, [abierto]);
 
@@ -146,54 +78,6 @@ export const ModalAccesoDirectivo: React.FC<ModalAccesoDirectivoProps> = ({
       onCerrar();
     } catch {
       setError('Error al conectar con el servidor institucional.');
-    } finally {
-      setCargando(false);
-    }
-  };
-
-  const handleRegistro = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setError(null);
-
-    if (!regNombre.trim()) {
-      setError('Por favor ingrese su nombre completo.');
-      return;
-    }
-    if (!regCargo.trim()) {
-      setError('Por favor ingrese su cargo o área docente.');
-      return;
-    }
-    if (!regPin.trim() || regPin.trim().length < 4) {
-      setError('La contraseña/PIN debe tener al menos 4 caracteres.');
-      return;
-    }
-
-    setCargando(true);
-
-    try {
-      const resp = await fetch('/api/auth/registro', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          nombre: regNombre.trim(),
-          cargo: regCargo.trim(),
-          rol: regRol,
-          correo: regCorreo.trim(),
-          pin: regPin.trim(),
-        }),
-      });
-
-      const data = await resp.json();
-      if (!resp.ok) {
-        setError(data.error || 'No fue posible completar el registro.');
-        setCargando(false);
-        return;
-      }
-
-      onAutenticarExito(data.token, data.usuario);
-      onCerrar();
-    } catch {
-      setError('Error al conectar con el servidor para registrar el perfil.');
     } finally {
       setCargando(false);
     }
@@ -252,9 +136,8 @@ export const ModalAccesoDirectivo: React.FC<ModalAccesoDirectivoProps> = ({
 
         {/* CUERPO BLANCO DEL FORMULARIO */}
         <div className="bg-white px-6 py-6 space-y-4 rounded-b-3xl">
-          {!modoRegistro ? (
-            /* FORMULARIO DE INICIO DE SESIÓN */
-            <form onSubmit={handleLogin} className="space-y-4">
+          {/* FORMULARIO DE INICIO DE SESIÓN */}
+          <form onSubmit={handleLogin} className="space-y-4">
               {/* Campo: Usuario o correo electrónico */}
               <div>
                 <label
@@ -361,157 +244,13 @@ export const ModalAccesoDirectivo: React.FC<ModalAccesoDirectivoProps> = ({
                 <span>Ir a Consulta Pública (Sin contraseña)</span>
               </button>
 
-              {/* Enlace para registrar nuevo usuario */}
+              {/* Nota institucional de gestión de cuentas */}
               <div className="text-center pt-1">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setModoRegistro(true);
-                    setError(null);
-                  }}
-                  className="text-xs text-slate-500 hover:text-[#034EA2] font-semibold cursor-pointer"
-                >
-                  ¿No tienes perfil docente registrado?{' '}
-                  <span className="text-blue-600 underline">Crear cuenta</span>
-                </button>
+                <p className="text-[11px] text-slate-500 font-medium">
+                  Las cuentas de edición son asignadas por Rectoría y Coordinación desde Administración de Usuarios.
+                </p>
               </div>
             </form>
-          ) : (
-            /* FORMULARIO DE REGISTRO DE NUEVO DOCENTE */
-            <form onSubmit={handleRegistro} className="space-y-3.5">
-              <div className="flex items-center justify-between border-b border-slate-100 pb-2">
-                <span className="text-xs font-bold text-slate-800">
-                  Registro de Nuevo Docente / Funcionario
-                </span>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setModoRegistro(false);
-                    setError(null);
-                  }}
-                  className="text-xs font-semibold text-blue-600 hover:underline cursor-pointer"
-                >
-                  Volver al login
-                </button>
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-slate-800 mb-1">
-                  Nombre completo:
-                </label>
-                <div className="relative">
-                  <User className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
-                  <input
-                    type="text"
-                    required
-                    value={regNombre}
-                    onChange={(e) => setRegNombre(e.target.value)}
-                    placeholder="Ej: Gloria Elena Ramírez"
-                    className="w-full pl-9 pr-3 py-1.5 text-xs sm:text-sm rounded-lg border border-slate-200 bg-white text-slate-800 placeholder:text-slate-400 focus:outline-none focus:border-[#007DC5] focus:ring-1 focus:ring-[#007DC5]/20 transition-all font-medium"
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-bold text-slate-800 mb-1">
-                    Cargo o Área:
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    value={regCargo}
-                    onChange={(e) => setRegCargo(e.target.value)}
-                    placeholder="Ej: Docente Matemáticas"
-                    className="w-full px-3 py-1.5 text-xs sm:text-sm rounded-lg border border-slate-200 bg-white text-slate-800 placeholder:text-slate-400 focus:outline-none focus:border-[#007DC5] focus:ring-1 focus:ring-[#007DC5]/20 transition-all font-medium"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-bold text-slate-800 mb-1">
-                    Rol institucional:
-                  </label>
-                  <DropdownPersonalizado
-                    modo="simple"
-                    anchoCompleto
-                    varianteBoton="campo"
-                    ariaLabel="Rol institucional"
-                    colorPuntoBoton={ROLES_REGISTRO.find((r) => r.valor === regRol)?.colorPunto}
-                    etiquetaBoton={
-                      ROLES_REGISTRO.find((r) => r.valor === regRol)?.etiqueta || 'Editor'
-                    }
-                    valorSeleccionado={regRol}
-                    onChange={(val) => setRegRol(val as RolUsuario)}
-                    opciones={ROLES_REGISTRO.map((r) => ({
-                      valor: r.valor,
-                      etiqueta: r.etiqueta,
-                      descripcion: r.subtitulo,
-                      colorPunto: r.colorPunto,
-                    }))}
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-slate-800 mb-1">
-                  Correo institucional (opcional):
-                </label>
-                <div className="relative">
-                  <Mail className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
-                  <input
-                    type="email"
-                    value={regCorreo}
-                    onChange={(e) => setRegCorreo(e.target.value)}
-                    placeholder="docente@ievillaflora.edu.co"
-                    className="w-full pl-9 pr-3 py-1.5 text-xs sm:text-sm rounded-lg border border-slate-200 bg-white text-slate-800 placeholder:text-slate-400 focus:outline-none focus:border-[#007DC5] focus:ring-1 focus:ring-[#007DC5]/20 transition-all font-medium"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-slate-800 mb-1">
-                  Cree su contraseña o PIN (mín. 4 dígitos):
-                </label>
-                <div className="relative">
-                  <Lock className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
-                  <input
-                    type="password"
-                    required
-                    value={regPin}
-                    onChange={(e) => setRegPin(e.target.value)}
-                    placeholder="Ej: 1234"
-                    className="w-full pl-9 pr-3 py-1.5 text-xs sm:text-sm rounded-lg border border-slate-200 bg-white text-slate-800 font-mono-tabular focus:outline-none focus:border-[#007DC5] focus:ring-1 focus:ring-[#007DC5]/20 transition-all font-medium"
-                  />
-                </div>
-              </div>
-
-              {error && (
-                <div
-                  role="alert"
-                  className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-xs text-rose-800 font-medium leading-relaxed"
-                >
-                  {error}
-                </div>
-              )}
-
-              <div className="flex items-center justify-end gap-2 pt-2">
-                <button
-                  type="button"
-                  onClick={() => setModoRegistro(false)}
-                  className="py-1.5 sm:py-2 px-4 text-xs font-semibold text-slate-600 rounded-xl border border-slate-200 hover:bg-slate-50 transition-colors cursor-pointer"
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="submit"
-                  disabled={cargando}
-                  className="py-1.5 sm:py-2 px-5 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 rounded-xl disabled:opacity-50 transition-all shadow-sm cursor-pointer"
-                >
-                  {cargando ? 'Registrando...' : 'Registrar y Acceder'}
-                </button>
-              </div>
-            </form>
-          )}
         </div>
       </div>
     </div>
