@@ -2,6 +2,8 @@ import React, { useEffect, useMemo, useState } from 'react';
 import {
   AlertTriangle,
   Check,
+  ChevronDown,
+  ChevronUp,
   Clock,
   CloudUpload,
   Copy,
@@ -174,12 +176,13 @@ export const ModalPublicacionNube: React.FC<ModalPublicacionNubeProps> = ({
   const [sincronizando, setSincronizando] = useState(false);
   const [mensajeSincronizado, setMensajeSincronizado] = useState<string | null>(null);
 
-  // Estados simplificados de guardado automático de PDF (TrueNAS + Puente Apps Script sin OAuth)
+  // Estados de guardado de PDF y configuración técnica de Google Drive (oculto por defecto como acordeón)
+  const [acordeonDriveAbierto, setAcordeonDriveAbierto] = useState<boolean>(false);
   const [subiendoDrivePdf, setSubiendoDrivePdf] = useState<boolean>(false);
   const [confirmandoSobrescrituraDrive, setConfirmandoSobrescrituraDrive] =
     useState<boolean>(false);
   const [mostrarAjustesAvanzadosDrive, setMostrarAjustesAvanzadosDrive] =
-    useState<boolean>(false);
+    useState<boolean>(true);
   const [appsScriptUrl, setAppsScriptUrl] = useState<string>('');
   const [appsScriptToken, setAppsScriptToken] = useState<string>('');
   const [appsScriptConfigurado, setAppsScriptConfigurado] =
@@ -873,20 +876,74 @@ export const ModalPublicacionNube: React.FC<ModalPublicacionNubeProps> = ({
             </div>
           )}
 
-          {/* SECCIÓN 1 SIMPLIFICADA: GUARDADO AUTOMÁTICO DE PDF (TRUENAS + PUENTE GRATUITO GOOGLE DRIVE) */}
-          <div className="bg-emerald-50/60 border border-emerald-300/90 rounded-2xl p-4 sm:p-5 space-y-3.5">
-            <div className="flex items-start justify-between gap-2 flex-wrap">
-              <div className="space-y-0.5">
-                <div className="flex items-center gap-2 text-xs sm:text-sm font-display font-extrabold text-[#065F46]">
-                  <FolderCheck className="w-4 h-4 text-emerald-600 shrink-0" />
-                  <span>
-                    1. Guardado Automático de PDF Oficial (1 Clic · Sin OAuth)
-                  </span>
+          {/* SECCIÓN 1: ACORDEÓN DE CONFIGURACIÓN TÉCNICA DE GOOGLE DRIVE Y TRUENAS */}
+          <div className="bg-emerald-50/50 border border-emerald-300/80 rounded-2xl overflow-hidden transition-all duration-200">
+            {/* ENCABEZADO CLICABLE DEL ACORDEÓN (OCULTO POR DEFECTO PARA USUARIOS GENERALES) */}
+            <button
+              type="button"
+              onClick={() => setAcordeonDriveAbierto((prev) => !prev)}
+              aria-expanded={acordeonDriveAbierto}
+              aria-controls="panel-config-drive-acordeon"
+              className="w-full px-4 sm:px-5 py-3.5 flex items-center justify-between gap-3 text-left hover:bg-emerald-100/40 transition-colors cursor-pointer select-none"
+            >
+              <div className="flex items-center gap-3 min-w-0">
+                <div className="w-8 h-8 rounded-xl bg-emerald-600/10 text-emerald-800 flex items-center justify-center shrink-0 border border-emerald-200">
+                  <FolderCheck className="w-4 h-4 text-emerald-700" />
                 </div>
-                <p className="text-[11px] text-slate-600">
-                  Guarda y sobrescribe automáticamente <code className="font-mono-tabular font-bold">{nombreArchivoPdfOficial}</code> en la carpeta <strong>«{carpetaActivaBoletin}»</strong> de tu servidor TrueNAS {appsScriptConfigurado ? 'y en tu Google Drive' : '(y opcionalmente en Google Drive)'} sin pedir inicios de sesión.
-                </p>
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-xs sm:text-sm font-display font-extrabold text-[#065F46]">
+                      1. Configuración de Google Drive y Almacenamiento PDF
+                    </span>
+                    <span className="px-2 py-0.5 rounded-md bg-emerald-100/80 text-emerald-800 border border-emerald-200 text-[10px] font-bold">
+                      {appsScriptConfigurado
+                        ? 'TrueNAS + Google Drive Activos'
+                        : 'Almacenamiento TrueNAS Activo'}
+                    </span>
+                    {boletin.drivePdfInfo && (
+                      <span className="px-2 py-0.5 rounded-md bg-white text-slate-700 border border-slate-200 text-[10px] font-bold">
+                        Revisión v{boletin.drivePdfInfo.version}
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-[11px] text-slate-600 truncate mt-0.5">
+                    Carpeta: <strong>📁 {carpetaActivaBoletin}</strong> · Archivo: <code className="font-mono text-[10px] font-bold">{nombreArchivoPdfOficial}</code>
+                  </p>
+                </div>
               </div>
+
+              <div className="flex items-center gap-2 shrink-0">
+                <span className="hidden sm:inline-block text-[11px] font-semibold text-emerald-800">
+                  {acordeonDriveAbierto ? 'Ocultar configuración' : 'Configurar Drive / Carpetas'}
+                </span>
+                <div className="w-7 h-7 rounded-lg bg-white border border-emerald-200 text-emerald-700 flex items-center justify-center shadow-2xs">
+                  {acordeonDriveAbierto ? (
+                    <ChevronUp className="w-4 h-4" />
+                  ) : (
+                    <ChevronDown className="w-4 h-4" />
+                  )}
+                </div>
+              </div>
+            </button>
+
+            {/* CONTENIDO DESPLEGABLE TÉCNICO (DESPLEGADO SOLO CUANDO SE ABRE EL ACORDEÓN) */}
+            {acordeonDriveAbierto && (
+              <div
+                id="panel-config-drive-acordeon"
+                className="px-4 sm:px-5 pb-4 sm:pb-5 pt-3 space-y-3.5 border-t border-emerald-200/80 bg-white/70 animate-in fade-in duration-150"
+              >
+                <div className="flex items-start justify-between gap-2 flex-wrap">
+                  <div className="space-y-0.5">
+                    <div className="flex items-center gap-2 text-xs sm:text-sm font-display font-extrabold text-[#065F46]">
+                      <FolderCheck className="w-4 h-4 text-emerald-600 shrink-0" />
+                      <span>
+                        Parámetros de Publicación y Almacenamiento en la Nube
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-slate-600">
+                      Guarda y sobrescribe automáticamente <code className="font-mono-tabular font-bold">{nombreArchivoPdfOficial}</code> en la carpeta <strong>«{carpetaActivaBoletin}»</strong> de tu servidor TrueNAS {appsScriptConfigurado ? 'y en tu Google Drive' : '(y opcionalmente en Google Drive)'} sin pedir inicios de sesión.
+                    </p>
+                  </div>
 
               {boletin.drivePdfInfo ? (
                 <span
@@ -1225,6 +1282,8 @@ export const ModalPublicacionNube: React.FC<ModalPublicacionNubeProps> = ({
               </button>
             </div>
           </div>
+        )}
+      </div>
 
           {/* SECCIÓN 2: LINK ACORTADO OFICIAL */}
           <div className="bg-[#F4F8FF] border border-blue-200/80 rounded-2xl p-4 sm:p-5 space-y-3">
