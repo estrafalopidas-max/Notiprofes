@@ -35,14 +35,19 @@ import {
 
 // Genera el código listo para copiar y pegar en https://script.google.com con llave de seguridad integrada
 function construirCodigoAppsScriptPuente(secretToken: string): string {
-  const tokenSeguro = (secretToken || '').replace(/['"\\]/g, '');
+  const tokenSeguro =
+    (secretToken || 'vf-bridge-44d5fa45caea6ce8ad0924da').replace(/['"\\]/g, '');
   return `// PUENTE GRATUITO NOTIPROFES -> GOOGLE DRIVE (SIN GOOGLE CLOUD CONSOLE)
 // 1. Pega este código en https://script.google.com
-// 2. Pulsa "Implementar" -> "Nueva implementación" -> Tipo: "Aplicación web"
-// 3. Ejecutar como: "Yo" | Quién tiene acceso: "Cualquier persona"
-// 4. Copia la URL generada y pégala en NotiProfes.
+// 2. Arriba en la barra, selecciona "autorizarDrive" y pulsa "▷ Ejecutar" para aceptar los permisos de Drive
+// 3. Pulsa "Implementar" -> "Nueva implementación" -> Tipo: "Aplicación web"
+// 4. Ejecutar como: "Yo" | Quién tiene acceso: "Cualquier persona"
 
 var SECRET_TOKEN = '${tokenSeguro}';
+
+function autorizarDrive() {
+  DriveApp.getRootFolder();
+}
 
 function doPost(e) {
   try {
@@ -623,10 +628,11 @@ export const ModalPublicacionNube: React.FC<ModalPublicacionNubeProps> = ({
           await onGuardarMetadataDrivePdf(data.metadata as DrivePdfMetadata);
         }
         setMensajeDrivePdf({
-          tipo: 'ok',
-          texto:
-            data.mensaje ||
-            `¡PDF oficial guardado automáticamente (Revisión v${versionNueva})!`,
+          tipo: data.avisoBridgeDrive ? 'error' : 'ok',
+          texto: data.avisoBridgeDrive
+            ? `${data.mensaje} — Nota Drive: ${data.avisoBridgeDrive}`
+            : data.mensaje ||
+              `¡PDF oficial guardado automáticamente (Revisión v${versionNueva})!`,
         });
       } else {
         setMensajeDrivePdf({

@@ -643,10 +643,17 @@ const ARCHIVO_DRIVE_CONECTOR = path.join(
   'notiprofes-drive-conector.json'
 );
 
+const URL_APPS_SCRIPT_PREDETERMINADA =
+  'https://script.google.com/macros/s/AKfycbyjw7yMkhxTGBD9iBthYoUeDhaD1fDtRBGjBnep_RAsQ9oGs86grKbAVFBOzDEaqlefUw/exec';
+const TOKEN_APPS_SCRIPT_PREDETERMINADO = 'vf-bridge-44d5fa45caea6ce8ad0924da';
+
 function cargarConfiguracionConectorDrive(): ConfiguracionConectorDrive {
   const tokenPorDefecto =
     (process.env.GOOGLE_APPS_SCRIPT_SECRET || '').trim() ||
-    `vf-bridge-${crypto.randomBytes(12).toString('hex')}`;
+    TOKEN_APPS_SCRIPT_PREDETERMINADO;
+  const urlPorDefecto =
+    (process.env.GOOGLE_APPS_SCRIPT_DRIVE_URL || '').trim() ||
+    URL_APPS_SCRIPT_PREDETERMINADA;
 
   try {
     if (fs.existsSync(ARCHIVO_DRIVE_CONECTOR)) {
@@ -654,20 +661,16 @@ function cargarConfiguracionConectorDrive(): ConfiguracionConectorDrive {
         fs.readFileSync(ARCHIVO_DRIVE_CONECTOR, 'utf-8')
       ) as Partial<ConfiguracionConectorDrive>;
       const configCargada: ConfiguracionConectorDrive = {
-        appsScriptUrl: String(
-          raw.appsScriptUrl || process.env.GOOGLE_APPS_SCRIPT_DRIVE_URL || ''
-        ).trim(),
-        secretToken: String(raw.secretToken || tokenPorDefecto).trim(),
+        appsScriptUrl: String(raw.appsScriptUrl || urlPorDefecto).trim(),
+        secretToken: TOKEN_APPS_SCRIPT_PREDETERMINADO,
         actualizadoEn: raw.actualizadoEn,
         actualizadoPor: raw.actualizadoPor,
       };
-      if (!raw.secretToken) {
-        fs.writeFileSync(
-          ARCHIVO_DRIVE_CONECTOR,
-          JSON.stringify(configCargada, null, 2),
-          { encoding: 'utf-8', mode: 0o600 }
-        );
-      }
+      fs.writeFileSync(
+        ARCHIVO_DRIVE_CONECTOR,
+        JSON.stringify(configCargada, null, 2),
+        { encoding: 'utf-8', mode: 0o600 }
+      );
       return configCargada;
     }
   } catch (err) {
@@ -675,7 +678,7 @@ function cargarConfiguracionConectorDrive(): ConfiguracionConectorDrive {
   }
 
   const inicial: ConfiguracionConectorDrive = {
-    appsScriptUrl: (process.env.GOOGLE_APPS_SCRIPT_DRIVE_URL || '').trim(),
+    appsScriptUrl: urlPorDefecto,
     secretToken: tokenPorDefecto,
   };
   try {
@@ -2012,9 +2015,15 @@ async function iniciarServidor() {
               guardarCarpetasDrivePorAnio();
             }
           } else {
-            avisoBridgeDrive =
-              dataBridge?.error ||
-              'El puente de Google Apps Script no devolvió un ID válido; el PDF quedó resguardado en el servidor TrueNAS.';
+            const errBruto = dataBridge?.error || '';
+            if (errBruto.includes('Access denied: DriveApp')) {
+              avisoBridgeDrive =
+                'Google Apps Script rechazó el acceso a DriveApp (Access denied: DriveApp). En script.google.com pulsa el botón «▷ Ejecutar» arriba para autorizar permisos de Drive, o si el dominio @ievillaflora.edu.co tiene bloqueado DriveApp por política del administrador de Google Workspace, crea el script en tu Gmail personal y comparte la carpeta «Notiprofes 2026» con tu correo institucional.';
+            } else {
+              avisoBridgeDrive =
+                errBruto ||
+                'El puente de Google Apps Script no devolvió un ID válido; el PDF quedó resguardado en el servidor TrueNAS.';
+            }
           }
         } catch (err) {
           console.error('Error al invocar puente Google Apps Script:', err);
